@@ -62,6 +62,27 @@ struct InferenceContext {
                  std::shared_ptr<Tensor> in_w,
                  std::shared_ptr<Tensor> in_s,
                  std::shared_ptr<Tensor> in_z);
+    void gelu(std::shared_ptr<Tensor> out,
+              std::shared_ptr<Tensor> in);
+    void tanh(std::shared_ptr<Tensor> out,
+              std::shared_ptr<Tensor> in);
+    void layerNorm(std::shared_ptr<Tensor> out,
+                   std::shared_ptr<Tensor> input_standardization,
+                   std::shared_ptr<Tensor> input_std_deviation,
+                   std::shared_ptr<Tensor> in,
+                   std::shared_ptr<Tensor> weight,
+                   std::shared_ptr<Tensor> bias,
+                   float epsilon);
+    void softmax(std::shared_ptr<Tensor> out,
+                 std::shared_ptr<Tensor> in,
+                 uint32_t axis);
+    void lpNorm(std::shared_ptr<Tensor> out,
+                std::shared_ptr<Tensor> in,
+                uint32_t axis,
+                uint32_t p,
+                float eps);
+    void relu(std::shared_ptr<Tensor> out,
+              std::shared_ptr<Tensor> in);
 };
 
 namespace {
@@ -148,4 +169,43 @@ inline void dequant_linear(std::shared_ptr<Tensor> out, std::shared_ptr<Tensor> 
     auto w = Tensor::buffer(x->dtype(), {x->shape()[1], out->shape()[1]}, getInferenceContext().memory_pool);
     getInferenceContext().dequant(w, w_w, w_s, w_z);
     getInferenceContext().linear(out, x, w, alpha, beta, residual, bias);
+}
+
+inline void layerNorm(std::shared_ptr<Tensor> out,
+                      std::shared_ptr<Tensor> input_standardization,
+                      std::shared_ptr<Tensor> input_std_deviation,
+                      std::shared_ptr<Tensor> in,
+                      std::shared_ptr<Tensor> weight,
+                      std::shared_ptr<Tensor> bias,
+                      float epsilon) {
+    getInferenceContext().layerNorm(out, input_standardization, input_std_deviation, in, weight, bias, epsilon);
+}
+
+inline void gelu(std::shared_ptr<Tensor> out,
+                 std::shared_ptr<Tensor> in) {
+    getInferenceContext().gelu(out, in);
+}
+
+inline void tanh(std::shared_ptr<Tensor> out,
+                 std::shared_ptr<Tensor> in) {
+    getInferenceContext().tanh(out, in);
+}
+
+inline void softmax(std::shared_ptr<Tensor> out,
+                    std::shared_ptr<Tensor> in,
+                    uint32_t axis) {
+    getInferenceContext().softmax(out, in, axis);
+}
+
+inline void lpNorm(std::shared_ptr<Tensor> out,
+                   std::shared_ptr<Tensor> in,
+                   uint32_t axis,
+                   uint32_t p,
+                   float eps) {
+    getInferenceContext().lpNorm(out, in, axis, p, eps);
+}
+
+inline void relu(std::shared_ptr<Tensor> out,
+                 std::shared_ptr<Tensor> in) {
+    getInferenceContext().relu(out, in);
 }
