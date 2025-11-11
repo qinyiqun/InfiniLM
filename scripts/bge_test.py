@@ -2,9 +2,9 @@ import torch
 import transformers
 import os
 import json
-from libinfinicore_infer import DataType, DeviceType, BGEMetaCStruct
+from libinfinicore_infer import DataType, DeviceType, BGEM3MetaCStruct
 
-class BGEMetaFromConfig(BGEMetaCStruct):
+class BGEM3MetaFromConfig(BGEM3MetaCStruct):
     def __init__(self, config, dtype=torch.float16, max_tokens=None):
         if dtype == torch.float16:
             dt_ = DataType.INFINI_DTYPE_F16
@@ -49,19 +49,14 @@ with open(os.path.join(model_dir_or_path, "config.json"), "r") as f:
     config = json.load(f)
     # print(config)
 
-meta = BGEMetaFromConfig(config, dtype=torch.float16, max_tokens=8192)
-# print(BGEMetaCStruct.dvoc)
+meta = BGEM3MetaFromConfig(config, dtype=torch.float16, max_tokens=8192)
 tokenizer = transformers.AutoTokenizer.from_pretrained(model_dir_or_path, trust_remote_code=True)
 model = transformers.AutoModel.from_pretrained(model_dir_or_path, trust_remote_code=False)
 model = model.eval().to("cuda").half()
 
 for name, tensor in model.state_dict().items():
-    # print(name)
     if name == "embeddings.word_embeddings.weight":
         print(f"Loaded weight: {name}, shape: {tensor.shape}, dtype: {tensor.dtype}, ptr: {tensor.data_ptr()}")
-        # print(tensor)
-        
-# exit()
 
 colbert_model_path = os.path.join(model_dir_or_path, 'colbert_linear.pt')
 sparse_model_path = os.path.join(model_dir_or_path, 'sparse_linear.pt')

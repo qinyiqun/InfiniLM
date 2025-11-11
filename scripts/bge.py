@@ -10,9 +10,9 @@ import torch
 import transformers
 
 from libinfinicore_infer import (
-    BGEModel,
-    # JiugeAWQMetaCStruct,
-    BGEMetaCStruct,
+    BGEM3Model,
+    JiugeAWQMetaCStruct,
+    BGEM3MetaCStruct,
     DataType,
     DeviceType,
     KVCacheCStruct,
@@ -20,10 +20,11 @@ from libinfinicore_infer import (
 from infer_task import InferTask, KVCache
 
 from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
+import numpy as np
 
 torch.set_default_device("cpu")
 
-class BGEMetaFromConfig(BGEMetaCStruct):
+class BGEM3MetaFromConfig(BGEM3MetaCStruct):
     def __init__(self, config, dtype=torch.float16, max_tokens=None):
         if dtype == torch.float16:
             dt_ = DataType.INFINI_DTYPE_F16
@@ -59,13 +60,15 @@ class BGEMetaFromConfig(BGEMetaCStruct):
         self.torch_dtype_logits = dtype
         
         
-class BGEBatchedTask:
+class BGEM3BatchedTask:
     def __init__(self, tasks: List[InferTask]):
         self.tasks = tasks
         self.nreq = len(tasks)
 
         # Precompute fields
         token_lists = [t.tokens for t in tasks]
+        mask_lists = [t.masks for t in tasks]
+
         self.req_lens_list = [len(toks) for toks in token_lists]
         self.req_pos_list = [t.pos for t in tasks]
         # self.kv_cache_ptrs = [t.kvcache().data() for t in tasks]
@@ -74,11 +77,20 @@ class BGEBatchedTask:
         self.topps_list = [t.topp for t in tasks]
 
         # Flatten token lists
-        flat_tokens = [tok for toks in token_lists for tok in toks]
-        self.ntok = len(flat_tokens)
+        self.bsz = tasks[0].bsz
+        # flat_tokens = [tok for toks in token_lists for tok in toks]
+        flat_tokens = tasks[0].tokens.flatten().tolist()
+        flat_masks = tasks[0].masks.flatten().tolist()
+        self.ntok = int(len(flat_tokens) / self.bsz)
+        # print(flat_tokens)
+        # exit(0)
+        # flat_masks = [mask for masks in mask_lists for mask in masks]
+        
+        
 
         # Convert to ctypes arrays in one pass
-        self.tokens = (c_uint * self.ntok)(*flat_tokens)
+        self.tokens = (c_uint * (self.ntok * self.bsz))(*flat_tokens)
+        self.masks = (c_float * (self.ntok * self.ntok * self.bsz))(*flat_masks)
         self.req_lens = (c_uint * self.nreq)(*self.req_lens_list)
         self.req_pos = (c_uint * self.nreq)(*self.req_pos_list)
         # self.kv_caches = (POINTER(KVCacheCStruct) * self.nreq)(*self.kv_cache_ptrs)
@@ -88,7 +100,9 @@ class BGEBatchedTask:
 
     def input_args(self):
         return (
+            self.bsz,
             self.tokens,
+            self.masks,
             self.ntok,
             self.req_lens,
             self.nreq,
@@ -101,7 +115,7 @@ class BGEBatchedTask:
         )
         
         
-class BGEForCausalLM:
+class BGEM3ForCausalLM:
     def __init__(
         self, model_dir_path, device=DeviceType.DEVICE_TYPE_CPU, ndev=1, max_tokens=None
     ):
@@ -118,9 +132,9 @@ class BGEForCausalLM:
         self.dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
         self.ndev = ndev
         self.device = device
-        self.meta = BGEMetaFromConfig(config, dtype=torch.float32, max_tokens=max_tokens)
+        self.meta = BGEM3MetaFromConfig(config, dtype=torch.float32, max_tokens=max_tokens)
 
-        self.bge_model = BGEModel()
+        self.bge_model = BGEM3Model()
         self.weights = self.bge_model.create_weights(
             byref(self.meta),
             self.device,
@@ -168,24 +182,17 @@ class BGEForCausalLM:
             self.bge_model.load_weight(
                 self.weights, name, tensor.data_ptr()
             )
-            
-
-        # colert_linear['weight'] =
-
-        # print(sparse_linear['weight'],flush=True)
-        # print(sparse_linear['weight'].shape, flush=True)
 
 
         self.bge_model.load_weight(self.weights, 'sparse.Linear.weight', sparse_linear['weight'].data_ptr())
         self.bge_model.load_weight(self.weights, 'sparse.Linear.bias', sparse_linear['bias'].data_ptr())
-        print('22222222222222222222222222222222222',flush=True)
             
     def max_context_len(self):
         return self.meta.dctx
     
-    def batch_infer_one_round(self, tasks: List[InferTask]):
-        output = (c_uint * len(tasks))()
-        batch_inputs = BGEBatchedTask(tasks)
+    def batch_infer_one_round(self, tasks: InferTask):
+        output = (c_uint )()
+        batch_inputs = BGEM3BatchedTask(tasks)
         self.bge_model.infer_batch(
             self.model_instance,
             *(batch_inputs.input_args()),
@@ -193,21 +200,52 @@ class BGEForCausalLM:
         )
         return list(output)
 
-    def generate(self, input_content, max_steps, topp_=1.0, topk_=1, temperature_=1.0):
+    def generate(self, input_content, batch_size, max_length):
         # input_content = self.tokenizer.apply_chat_template(
         #     conversation=[{"role": "user", "content": input_content}],
         #     add_generation_prompt=True,
         #     tokenize=False,
         # )
         # print(input_content, end="", flush=True)
-        tokens = self.tokenizer.encode(input_content)
+        all_inputs = []
+        for start_index in range(0, len(input_content), batch_size):
+            sentences_batch = input_content[start_index:start_index + batch_size]
+            inputs_batch = self.tokenizer(
+                sentences_batch,
+                truncation=True,
+                max_length=max_length,
+                # **kwargs
+            )
+            inputs_batch = [{
+                k: inputs_batch[k][i] for k in inputs_batch.keys()
+            } for i in range(len(sentences_batch))]
+            all_inputs.extend(inputs_batch)
+
+        # sort by length for less padding
+        length_sorted_idx = np.argsort([-len(x['input_ids']) for x in all_inputs])
+        all_inputs_sorted = [all_inputs[i] for i in length_sorted_idx]
+        
+        inputs_batch = self.tokenizer.pad(
+                    all_inputs_sorted[: batch_size],
+                    padding=True,
+                    return_tensors='pt',
+                    # **kwargs
+                ).to('cuda')
+        # inputs_batch['attention_mask'] = (1.0 - inputs_batch['attention_mask'].to(torch.float32)) * torch.finfo(torch.float32).min
+        bsz, src_len = inputs_batch['attention_mask'].size()
+        expanded_mask = inputs_batch['attention_mask'][:, None, None, :].expand(bsz, 1, src_len, src_len).to(torch.float32)
+        inverted_mask = torch.tensor(1.0, dtype=torch.float32) - expanded_mask
+        inputs_batch['attention_mask'] = inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(torch.float32).min)
+
+        # exit(0)
         infer_task = InferTask(
             0,
-            tokens,
+            inputs_batch['input_ids'],
+            inputs_batch['attention_mask'],
             self.max_context_len(),
-            temperature_,
-            topk_,
-            topp_,
+            0,
+            0,
+            0,
             self.eos_token_id,
         )
         # infer_task.bind_kvcache(KVCache(self))
@@ -265,8 +303,10 @@ def test():
         sys.exit(1)
 
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-    model = BGEForCausalLM(model_path, device_type, ndev)
-    model.generate("What is BGE M3?", 500)
+    model = BGEM3ForCausalLM(model_path, device_type, ndev)
+    model.generate(["What is BGE M3?", "What the fuck you are doing, you hit me, you a damn guy", "Tell me, look in my eyes, tell me.", "EVE is the shabiest game in china, its planner is the shabiest people."], 12, 8192)
+    # 
+    # model.generate(["What the fuck you are doing, you hit me, you a damn guy", "What the fuck you are doing, you hit me, you a damn guy"], 12, 8192)
     model.destroy_model_instance()
 
 

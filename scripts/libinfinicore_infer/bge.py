@@ -1,14 +1,14 @@
 from .base import BaseModel, DataType, DeviceType, KVCacheCStruct, register_model
 from ctypes import c_size_t, c_uint, c_int, c_float, c_void_p, POINTER, Structure, byref, c_char_p
 
-class ModelWeightsCStruct(Structure):
+class BGEM3ModelWeightsCStruct(Structure):
     pass
 
 
-class BGEModelCStruct(Structure):
+class BGEM3ModelCStruct(Structure):
     pass
 
-class BGEMetaCStruct(Structure):
+class BGEM3MetaCStruct(Structure):
     _fields_ = [
         ("dt_logits", DataType),
         ("nlayer", c_size_t),
@@ -25,46 +25,48 @@ class BGEMetaCStruct(Structure):
     
     
 @register_model
-class BGEModel(BaseModel):
+class BGEM3Model(BaseModel):
     @classmethod
     def register_lib(cls, lib):
         """Register BGE model functions with the library"""
-        lib.createBGEWeights.restype = POINTER(ModelWeightsCStruct)
-        lib.createBGEWeights.argtypes = [
-            POINTER(BGEMetaCStruct),
+        lib.createBGEM3Weights.restype = POINTER(BGEM3ModelWeightsCStruct)
+        lib.createBGEM3Weights.argtypes = [
+            POINTER(BGEM3MetaCStruct),
             DeviceType,
             c_int,
             POINTER(c_int),
         ]
 
-        lib.createBGEModel.restype = POINTER(BGEModelCStruct)
-        lib.createBGEModel.argtypes = [
-            POINTER(BGEMetaCStruct),
-            POINTER(ModelWeightsCStruct),
+        lib.createBGEM3Model.restype = POINTER(BGEM3ModelCStruct)
+        lib.createBGEM3Model.argtypes = [
+            POINTER(BGEM3MetaCStruct),
+            POINTER(BGEM3ModelWeightsCStruct),
         ]
         
-        lib.loadModelWeight.argtypes = [
-            POINTER(ModelWeightsCStruct),
+        lib.loadBGEM3ModelWeight.argtypes = [
+            POINTER(BGEM3ModelWeightsCStruct),
             c_char_p,
             c_void_p,
         ]
         
     def create_model(self, meta, weights):
-        return self.lib.createBGEModel(meta, weights)
+        return self.lib.createBGEM3Model(meta, weights)
         
     def create_weights(self, meta, device_type, ndev, dev_ids):
-        return self.lib.createBGEWeights(meta, device_type, ndev, dev_ids)
+        return self.lib.createBGEM3Weights(meta, device_type, ndev, dev_ids)
     
     def load_weight(self, weights, name, data):
-        self.lib.loadModelWeight(weights, name.encode("utf-8"), data)
+        self.lib.loadBGEM3ModelWeight(weights, name.encode("utf-8"), data)
         
     def destroy_model(self, model):
-        self.lib.destroyBGEModel(model)
+        self.lib.destroyBGEM3Model(model)
         
     def infer_batch(
         self,
         model,
+        bsz,
         tokens,
+        masks,
         ntok,
         req_lens,
         nreq,
@@ -75,9 +77,11 @@ class BGEModel(BaseModel):
         topp,
         output,
     ):
-        self.lib.inferBatchBGE(
+        self.lib.inferBatchBGEM3(
             model,
+            bsz,
             tokens,
+            masks,
             ntok,
             req_lens,
             nreq,
@@ -92,6 +96,6 @@ class BGEModel(BaseModel):
     def forward_batch(
         self, model, tokens, ntok, req_lens, nreq, req_pos, kv_caches, logits
     ):
-        self.lib.forwardBatchBGE(
+        self.lib.forwardBatchBGEM3(
             model, tokens, ntok, req_lens, nreq, req_pos, kv_caches, logits
         )

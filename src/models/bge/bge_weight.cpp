@@ -2,8 +2,8 @@
 
 #include <cmath>
 
-BGEWeights::BGEWeights(
-    const BGEMeta *meta,
+BGEM3Weights::BGEM3Weights(
+    const BGEM3Meta *meta,
     infiniDevice_t device,
     const std::vector<int> &dev_ids) : infinicore::weights::Loader(device, dev_ids) {
     auto ndev = dev_ids.size();
@@ -24,7 +24,7 @@ BGEWeights::BGEWeights(
     for (size_t i = 0; i < ndev; i++) {
         RUN_INFINI(infinirtSetDevice(device, dev_ids[i]));
 
-        auto weight = std::make_shared<BGEDeviceWeight>();
+        auto weight = std::make_shared<BGEM3DeviceWeight>();
         _device_weights[i] = weight;
 
         auto w_word_embd = Tensor::weight(nullptr, dt_logits, {dvoc, d});
@@ -105,10 +105,10 @@ BGEWeights::BGEWeights(
 }
 
 __C struct ModelWeights *
-createBGEWeights(const BGEMeta *meta,
-                 infiniDevice_t device,
-                 int ndev,
-                 const int *dev_ids) {
-    BGEWeights *weights = new BGEWeights(meta, device, std::vector<int>(dev_ids, dev_ids + ndev));
+createBGEM3Weights(const BGEM3Meta *meta,
+                   infiniDevice_t device,
+                   int ndev,
+                   const int *dev_ids) {
+    BGEM3Weights *weights = new BGEM3Weights(meta, device, std::vector<int>(dev_ids, dev_ids + ndev));
     return (struct ModelWeights *)weights;
 }

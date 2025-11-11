@@ -9,32 +9,32 @@
 
 #include "../weights_loader.h"
 
-struct BGEModel;
+struct BGEM3Model;
 
 typedef struct
 {
     infiniDtype_t dt_logits;
     size_t nlayer, d, nh, nkvh, dh, di, dctx, dvoc;
     uint32_t end_token;
-} BGEMeta;
+} BGEM3Meta;
 
 //////////////////// APIs ///////////////////////
 __C __export struct ModelWeights *
-createBGEWeights(const BGEMeta *,
-                 infiniDevice_t device,
-                 int ndev,
-                 const int *dev_ids);
+createBGEM3Weights(const BGEM3Meta *,
+                   infiniDevice_t device,
+                   int ndev,
+                   const int *dev_ids);
 /// @brief 创建模型
 /// @param device 协处理器种类
 /// @param ndev 协处理器数量
 /// @param dev_ids 协处理器编号，长度为 ndev
-__C __export struct BGEModel *
-createBGEModel(const BGEMeta *,
-               const ModelWeights *);
+__C __export struct BGEM3Model *
+createBGEM3Model(const BGEM3Meta *,
+                 const ModelWeights *);
 
 /// @brief 销毁模型
 __C __export void
-destroyBGEModel(struct BGEModel *);
+destroyBGEM3Model(struct BGEM3Model *);
 
 /// @brief 批次推理一轮，并采样出新的 token
 /// @param tokens 输入 token 地址
@@ -48,12 +48,12 @@ destroyBGEModel(struct BGEModel *);
 /// @param topp 采样 topp
 /// @param output 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
-inferBatchBGE(struct BGEModel *,
-              const uint32_t *tokens, uint32_t ntok,
-              const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-              struct KVCache **kv_caches,
-              const float *temperature, const uint32_t *topk, const float *topp,
-              uint32_t *output);
+inferBatchBGEM3(struct BGEM3Model *, uint32_t bsz,
+                const uint32_t *tokens, const float *masks, uint32_t ntok,
+                const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                struct KVCache **kv_caches,
+                const float *temperature, const uint32_t *topk, const float *topp,
+                uint32_t *output);
 
 /// @brief 批次推理一轮，输出 output embedding 后的 logits
 /// @param tokens 输入 token 地址
@@ -64,10 +64,10 @@ inferBatchBGE(struct BGEModel *,
 /// @param kv_caches 每个请求的 KV Cache
 /// @param logits 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
-forwardBatchBGE(struct BGEModel *,
-                const uint32_t *tokens, uint32_t ntok,
-                const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                struct KVCache **kv_caches,
-                void *logits);
+forwardBatchBGEM3(struct BGEM3Model *, uint32_t bsz,
+                  const uint32_t *tokens, const float *masks, uint32_t ntok,
+                  const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
+                  struct KVCache **kv_caches,
+                  void *logits);
 
 #endif
