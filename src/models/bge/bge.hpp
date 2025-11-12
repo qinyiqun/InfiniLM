@@ -53,8 +53,8 @@ struct InferRequest {
     const float *temperature;
     const uint32_t *topk;
     const float *topp;
-    uint32_t *output;
-    void *logits;
+    float *dense_out;
+    float *sparse_out;
 };
 
 struct InferState {

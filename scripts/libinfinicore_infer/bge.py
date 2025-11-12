@@ -75,7 +75,8 @@ class BGEM3Model(BaseModel):
         temperature,
         topk,
         topp,
-        output,
+        dense_out,
+        sparse_out,
     ):
         self.lib.inferBatchBGEM3(
             model,
@@ -90,7 +91,8 @@ class BGEM3Model(BaseModel):
             temperature,
             topk,
             topp,
-            output,
+            dense_out,
+            sparse_out,
         )
 
     def forward_batch(

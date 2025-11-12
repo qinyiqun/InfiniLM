@@ -8,6 +8,7 @@ import time
 import json
 import torch
 import transformers
+from collections import defaultdict
 
 from libinfinicore_infer import (
     BGEM3Model,
@@ -19,7 +20,7 @@ from libinfinicore_infer import (
 )
 from infer_task import InferTask, KVCache
 
-from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref
+from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref,cast
 import numpy as np
 
 torch.set_default_device("cpu")
@@ -71,29 +72,21 @@ class BGEM3BatchedTask:
 
         self.req_lens_list = [len(toks) for toks in token_lists]
         self.req_pos_list = [t.pos for t in tasks]
-        # self.kv_cache_ptrs = [t.kvcache().data() for t in tasks]
         self.temperaturas_list = [t.temperature for t in tasks]
         self.topks_list = [t.topk for t in tasks]
         self.topps_list = [t.topp for t in tasks]
 
         # Flatten token lists
         self.bsz = tasks[0].bsz
-        # flat_tokens = [tok for toks in token_lists for tok in toks]
         flat_tokens = tasks[0].tokens.flatten().tolist()
         flat_masks = tasks[0].masks.flatten().tolist()
         self.ntok = int(len(flat_tokens) / self.bsz)
-        # print(flat_tokens)
-        # exit(0)
-        # flat_masks = [mask for masks in mask_lists for mask in masks]
         
-        
-
         # Convert to ctypes arrays in one pass
         self.tokens = (c_uint * (self.ntok * self.bsz))(*flat_tokens)
         self.masks = (c_float * (self.ntok * self.ntok * self.bsz))(*flat_masks)
         self.req_lens = (c_uint * self.nreq)(*self.req_lens_list)
         self.req_pos = (c_uint * self.nreq)(*self.req_pos_list)
-        # self.kv_caches = (POINTER(KVCacheCStruct) * self.nreq)(*self.kv_cache_ptrs)
         self.temperaturas = (c_float * self.nreq)(*self.temperaturas_list)
         self.topks = (c_uint * self.nreq)(*self.topks_list)
         self.topps = (c_float * self.nreq)(*self.topps_list)
@@ -107,7 +100,6 @@ class BGEM3BatchedTask:
             self.req_lens,
             self.nreq,
             self.req_pos,
-            # self.kv_caches,
             None,
             self.temperaturas,
             self.topks,
@@ -157,12 +149,11 @@ class BGEM3ForCausalLM:
             byref(self.meta),
             self.weights,
         )
-        # load_end_time = time.time()
-        # print(f"Time used: {load_end_time - load_start_time:.3f}s")
+        load_end_time = time.time()
+        print(f"Time used: {load_end_time - load_start_time:.3f}s")
 
     def load_all_safetensors_from_dir(self, dir_path_: str):
         dir_path_ = Path(dir_path_)
-        # print(dir_path_,flush=True)
         model = transformers.AutoModel.from_pretrained(dir_path_, trust_remote_code=False)
         
         colert_linear = torch.load(dir_path_/'colbert_linear.pt', map_location='cpu', weights_only=True)
@@ -171,7 +162,6 @@ class BGEM3ForCausalLM:
         sparse_linear['weight'] = sparse_linear['weight'].to(torch.float32)
         sparse_linear['bias'] = sparse_linear['bias'].to(torch.float32)
         
-        # print('00000000000000000000000000000000000000',flush=True)
         # self.bge_model.load_weight(self.weights, 'colbert.Linear.weight', colert_linear['weight'].data_ptr())
         # print('0101010101010101010101010101',flush=True)
         
@@ -191,22 +181,20 @@ class BGEM3ForCausalLM:
         return self.meta.dctx
     
     def batch_infer_one_round(self, tasks: InferTask):
-        output = (c_uint )()
+        dense_out = (c_float * (tasks[0].bsz * 1024))()
+        sparse_out = (c_float * (tasks[0].bsz * tasks[0].tokens.shape[1]))()
         batch_inputs = BGEM3BatchedTask(tasks)
         self.bge_model.infer_batch(
             self.model_instance,
             *(batch_inputs.input_args()),
-            output,
+            dense_out,
+            sparse_out,
         )
-        return list(output)
+        return dict([('dense_vecs', dense_out),('sparse_vecs', sparse_out)])
+        
 
-    def generate(self, input_content, batch_size, max_length):
-        # input_content = self.tokenizer.apply_chat_template(
-        #     conversation=[{"role": "user", "content": input_content}],
-        #     add_generation_prompt=True,
-        #     tokenize=False,
-        # )
-        # print(input_content, end="", flush=True)
+
+    def generate(self, input_content, batch_size, max_length, return_dense, return_sparse):
         all_inputs = []
         for start_index in range(0, len(input_content), batch_size):
             sentences_batch = input_content[start_index:start_index + batch_size]
@@ -229,15 +217,12 @@ class BGEM3ForCausalLM:
                     all_inputs_sorted[: batch_size],
                     padding=True,
                     return_tensors='pt',
-                    # **kwargs
                 ).to('cuda')
-        # inputs_batch['attention_mask'] = (1.0 - inputs_batch['attention_mask'].to(torch.float32)) * torch.finfo(torch.float32).min
         bsz, src_len = inputs_batch['attention_mask'].size()
         expanded_mask = inputs_batch['attention_mask'][:, None, None, :].expand(bsz, 1, src_len, src_len).to(torch.float32)
         inverted_mask = torch.tensor(1.0, dtype=torch.float32) - expanded_mask
         inputs_batch['attention_mask'] = inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(torch.float32).min)
 
-        # exit(0)
         infer_task = InferTask(
             0,
             inputs_batch['input_ids'],
@@ -248,37 +233,66 @@ class BGEM3ForCausalLM:
             0,
             self.eos_token_id,
         )
-        # infer_task.bind_kvcache(KVCache(self))
 
         steps = 0
         total_time = 0
-        output_content = ""
         
         start_time = time.time()
         output_tokens = self.batch_infer_one_round([infer_task])
+        
+        all_dense_embeddings, all_lexical_weights, all_colbert_vecs = [], [], []
+        
+        def _process_token_weights(token_weights: np.ndarray, input_ids: list):
+            # conver to dict
+            result = defaultdict(int)
+            unused_tokens = set()
+            for _token in ['cls_token', 'eos_token', 'pad_token', 'unk_token']:
+                if _token in self.tokenizer.special_tokens_map:
+                    _token_id = self.tokenizer.convert_tokens_to_ids(self.tokenizer.special_tokens_map[_token])
+                    unused_tokens.add(_token_id)
+            for w, idx in zip(token_weights, input_ids):
+                if idx not in unused_tokens and w > 0:
+                    idx = str(idx)
+                    if w > result[idx]:
+                        result[idx] = w
+            return result
+
+        sparse_out = torch.frombuffer(output_tokens["sparse_vecs"], dtype=torch.float32, count=bsz*src_len).view(bsz, src_len, 1).clone()
+
+        if return_sparse:
+            token_weights = sparse_out.squeeze(-1)
+            all_lexical_weights.extend(
+                list(map(
+                    _process_token_weights, 
+                    token_weights.cpu().numpy(),
+                    inputs_batch['input_ids'].cpu().numpy().tolist()
+            )))
+        dense_out = torch.frombuffer(output_tokens["dense_vecs"], dtype=torch.float32, count=bsz*1024).view(bsz, 1024).clone()
+        if return_dense:
+            all_dense_embeddings.append(dense_out.cpu().numpy())
+            
+
+        if return_dense:
+            all_dense_embeddings = np.concatenate(all_dense_embeddings, axis=0)
+            all_dense_embeddings = all_dense_embeddings[np.argsort(length_sorted_idx)]
+            if batch_size==1:
+                all_dense_embeddings = all_dense_embeddings[0]
+
+        if return_sparse:
+            all_lexical_weights = [all_lexical_weights[i] for i in np.argsort(length_sorted_idx)]
+            if batch_size==1:
+                all_lexical_weights = all_lexical_weights[0]
         end_time = time.time()
-
-        # for step_i in range(max_steps):
-        #     start_time = time.time()
-        #     output_tokens = self.batch_infer_one_round([infer_task])
-        #     end_time = time.time()
-        #     steps += 1
-        #     output_str = self.tokenizer.decode(output_tokens[0])
-        #     output_content += output_str
-        #     print(output_str, end="", flush=True)
-        #     if output_tokens[0] in self.eos_token_id:
-        #         break
-        #     infer_task.next(output_tokens[0])
-
-        #     if step_i > 0:
-        #         total_time += end_time - start_time
 
         print("\n")
         avg_time = total_time * 1000 / (steps - 1)
         print(f"Time per step: {avg_time:.3f}ms")
 
-        # infer_task._kv_cache.drop(self)
-        return output_content, avg_time
+        return {
+            "dense_vecs": all_dense_embeddings,
+            "lexical_weights": all_lexical_weights,
+            "colbert_vecs": all_colbert_vecs
+        }, (end_time-start_time) * 1000
     
     def destroy_model_instance(self):
         self.bge_model.destroy_model(self.model_instance)
@@ -304,8 +318,11 @@ def test():
 
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
     model = BGEM3ForCausalLM(model_path, device_type, ndev)
-    model.generate(["What is BGE M3?", "What the fuck you are doing, you hit me, you a damn guy", "Tell me, look in my eyes, tell me.", "EVE is the shabiest game in china, its planner is the shabiest people."], 12, 8192)
-    # 
+    for i in range(0,1000):
+        embeddings, time = model.generate(["What is BGE M3?", "What the fuck you are doing, you hit me, you a damn guy", "Tell me, look in my eyes, tell me.", "EVE is the shabiest game in china, its planner is the shabiest people."], 12, 8192, True, True)
+        print(time)
+    # print(embeddings['dense_vecs'])
+    # print(embeddings['lexical_weights'])
     # model.generate(["What the fuck you are doing, you hit me, you a damn guy", "What the fuck you are doing, you hit me, you a damn guy"], 12, 8192)
     model.destroy_model_instance()
 
