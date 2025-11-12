@@ -2,7 +2,6 @@ from typing import List, Sequence
 import math
 import os
 from pathlib import Path
-import safetensors
 import sys
 import time
 import json
@@ -12,15 +11,13 @@ from collections import defaultdict
 
 from libinfinicore_infer import (
     BGEM3Model,
-    JiugeAWQMetaCStruct,
     BGEM3MetaCStruct,
     DataType,
     DeviceType,
-    KVCacheCStruct,
 )
-from infer_task import InferTask, KVCache
+from infer_task import InferTask
 
-from ctypes import POINTER, c_float, c_int, c_uint, c_void_p, byref,cast
+from ctypes import c_float, c_int, c_uint, byref
 import numpy as np
 
 torch.set_default_device("cpu")
@@ -64,17 +61,7 @@ class BGEM3MetaFromConfig(BGEM3MetaCStruct):
 class BGEM3BatchedTask:
     def __init__(self, tasks: List[InferTask]):
         self.tasks = tasks
-        self.nreq = len(tasks)
-
         # Precompute fields
-        token_lists = [t.tokens for t in tasks]
-        mask_lists = [t.masks for t in tasks]
-
-        self.req_lens_list = [len(toks) for toks in token_lists]
-        self.req_pos_list = [t.pos for t in tasks]
-        self.temperaturas_list = [t.temperature for t in tasks]
-        self.topks_list = [t.topk for t in tasks]
-        self.topps_list = [t.topp for t in tasks]
 
         # Flatten token lists
         self.bsz = tasks[0].bsz
@@ -85,11 +72,6 @@ class BGEM3BatchedTask:
         # Convert to ctypes arrays in one pass
         self.tokens = (c_uint * (self.ntok * self.bsz))(*flat_tokens)
         self.masks = (c_float * (self.ntok * self.ntok * self.bsz))(*flat_masks)
-        self.req_lens = (c_uint * self.nreq)(*self.req_lens_list)
-        self.req_pos = (c_uint * self.nreq)(*self.req_pos_list)
-        self.temperaturas = (c_float * self.nreq)(*self.temperaturas_list)
-        self.topks = (c_uint * self.nreq)(*self.topks_list)
-        self.topps = (c_float * self.nreq)(*self.topps_list)
 
     def input_args(self):
         return (
@@ -97,13 +79,6 @@ class BGEM3BatchedTask:
             self.tokens,
             self.masks,
             self.ntok,
-            self.req_lens,
-            self.nreq,
-            self.req_pos,
-            None,
-            self.temperaturas,
-            self.topks,
-            self.topps,
         )
         
         
@@ -162,20 +137,19 @@ class BGEM3ForCausalLM:
         sparse_linear['weight'] = sparse_linear['weight'].to(torch.float32)
         sparse_linear['bias'] = sparse_linear['bias'].to(torch.float32)
         
-        # self.bge_model.load_weight(self.weights, 'colbert.Linear.weight', colert_linear['weight'].data_ptr())
-        # print('0101010101010101010101010101',flush=True)
-        
-        # self.bge_model.load_weight(self.weights, 'colbert.Linear.bias', colert_linear['bias'].data_ptr())
-        # print('111111111111111111111111111111111111111',flush=True)
+        colert_linear['weight'] = colert_linear['weight'].to(torch.float32)
+        colert_linear['bias'] = colert_linear['bias'].to(torch.float32)
         
         for name, tensor in model.state_dict().items():
             self.bge_model.load_weight(
                 self.weights, name, tensor.data_ptr()
             )
 
-
         self.bge_model.load_weight(self.weights, 'sparse.Linear.weight', sparse_linear['weight'].data_ptr())
         self.bge_model.load_weight(self.weights, 'sparse.Linear.bias', sparse_linear['bias'].data_ptr())
+        
+        self.bge_model.load_weight(self.weights, 'colbert.Linear.weight', colert_linear['weight'].data_ptr())
+        self.bge_model.load_weight(self.weights, 'colbert.Linear.bias', colert_linear['bias'].data_ptr())
             
     def max_context_len(self):
         return self.meta.dctx
@@ -191,8 +165,6 @@ class BGEM3ForCausalLM:
             sparse_out,
         )
         return dict([('dense_vecs', dense_out),('sparse_vecs', sparse_out)])
-        
-
 
     def generate(self, input_content, batch_size, max_length, return_dense, return_sparse):
         all_inputs = []
@@ -234,9 +206,6 @@ class BGEM3ForCausalLM:
             self.eos_token_id,
         )
 
-        steps = 0
-        total_time = 0
-        
         start_time = time.time()
         output_tokens = self.batch_infer_one_round([infer_task])
         
@@ -284,14 +253,10 @@ class BGEM3ForCausalLM:
                 all_lexical_weights = all_lexical_weights[0]
         end_time = time.time()
 
-        print("\n")
-        avg_time = total_time * 1000 / (steps - 1)
-        print(f"Time per step: {avg_time:.3f}ms")
-
         return {
             "dense_vecs": all_dense_embeddings,
             "lexical_weights": all_lexical_weights,
-            "colbert_vecs": all_colbert_vecs
+            # "colbert_vecs": all_colbert_vecs 暂时不支持colber_vecs
         }, (end_time-start_time) * 1000
     
     def destroy_model_instance(self):
@@ -318,12 +283,10 @@ def test():
 
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
     model = BGEM3ForCausalLM(model_path, device_type, ndev)
-    for i in range(0,1000):
+    for i in range(0,3):
         embeddings, time = model.generate(["What is BGE M3?", "What the fuck you are doing, you hit me, you a damn guy", "Tell me, look in my eyes, tell me.", "EVE is the shabiest game in china, its planner is the shabiest people."], 12, 8192, True, True)
         print(time)
-    # print(embeddings['dense_vecs'])
-    # print(embeddings['lexical_weights'])
-    # model.generate(["What the fuck you are doing, you hit me, you a damn guy", "What the fuck you are doing, you hit me, you a damn guy"], 12, 8192)
+   
     model.destroy_model_instance()
 
 

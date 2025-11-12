@@ -22,52 +22,28 @@ position_ids_from_input_ids(const uint32_t *input_ids,
             std::size_t flat_idx = b * seq_len + t;
             int32_t m = (input_ids[flat_idx] != padding_idx);
             cum += m;
-            // 保持原始逻辑：非 padding 位置为 (cum + past_kv_len)，padding 位置为 padding_idx
-            // pos.push_back(cum * m + static_cast<int32_t>(padding_idx) * (1 - m));
             pos.push_back(cum * m + static_cast<int32_t>(padding_idx));
         }
     }
 
     return pos; // NRVO, no copy
 }
-// inline std::vector<int32_t>
-// position_ids_from_input_ids(const uint32_t *input_ids,
-//                             std::size_t seq_len,
-//                             std::size_t bsz,
-//                             uint32_t padding_idx) {
-//     std::vector<int32_t> pos;
-//     pos.reserve(seq_len);
-
-//     int32_t cum = 0;
-//     for (std::size_t i = 0; i < seq_len; ++i) {
-//         int32_t m = (input_ids[i] != padding_idx);
-//         cum += m;
-//         pos.push_back((cum + past_kv_len) * m + static_cast<int32_t>(padding_idx));
-//     }
-
-//     return pos; // NRVO / move，无拷贝
-// }
 
 void inferDeviceBatch(const BGEM3Meta *meta, BGEM3DeviceResource &rsrc,
                       uint32_t idev, uint32_t ndev, uint32_t bsz,
                       const uint32_t *tokens, const float *masks, uint32_t ntok,
-                      const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                       float *dense_out, float *sparse_out) {
     auto nlayer = meta->nlayer;
     auto nkvh = meta->nkvh / ndev;
     auto nh = meta->nh / ndev;
-    auto ngroup = nh / nkvh;
-    // auto dctx = meta.dctx;
     auto dh = meta->dh;
     auto d = meta->d;
     auto dt_logits = meta->dt_logits;
     auto di = meta->di / ndev;
-    auto dvoc = meta->dvoc;
     auto stream = rsrc.stream;
     auto weight = rsrc.weights;
 
-    // auto attn_masks = Tensor::buffer(dt_logits, {bsz, 1, ntok, ntok}, rsrc.memory_pool);
-    std::shared_ptr<Tensor> attn_masks = Tensor::weight((void *)masks, INFINI_DTYPE_F32, {bsz, 1, ntok, ntok});
+    std::shared_ptr<Tensor> attn_masks = Tensor::weight((void *)masks, dt_logits, {bsz, 1, ntok, ntok});
     auto logits_in = Tensor::buffer(dt_logits, {bsz, ntok, d}, rsrc.memory_pool);
     auto logits_in_copy = Tensor::buffer(dt_logits, {bsz, ntok, d}, rsrc.memory_pool);
 
@@ -82,6 +58,10 @@ void inferDeviceBatch(const BGEM3Meta *meta, BGEM3DeviceResource &rsrc,
     auto k_buf = Tensor::buffer(dt_logits, {bsz, ntok, nkvh * dh}, rsrc.memory_pool);
     auto v_buf = Tensor::buffer(dt_logits, {bsz, ntok, nkvh * dh}, rsrc.memory_pool);
 
+    auto q_buf_copy = Tensor::buffer(dt_logits, {bsz, nh, ntok, d / nh}, rsrc.memory_pool);
+    auto k_buf_copy = Tensor::buffer(dt_logits, {bsz, nh, ntok, d / nh}, rsrc.memory_pool);
+    auto v_buf_copy = Tensor::buffer(dt_logits, {bsz, nh, ntok, d / nh}, rsrc.memory_pool);
+
     auto qk_buf = Tensor::buffer(dt_logits, {bsz, nh, ntok, ntok}, rsrc.memory_pool);
     auto inter_buf = Tensor::buffer(dt_logits, {bsz, ntok, di}, rsrc.memory_pool);
 
@@ -89,15 +69,15 @@ void inferDeviceBatch(const BGEM3Meta *meta, BGEM3DeviceResource &rsrc,
     auto dense_buf = Tensor::buffer(dt_logits, {bsz, d}, rsrc.memory_pool);
     auto sparse_buf = Tensor::buffer(dt_logits, {bsz, ntok, 1}, rsrc.memory_pool);
 
-    std::cout
-        << "tnbl" << "dh: " << dh << "nlayer: " << nlayer << ", nh: " << nh << ", nkvh: " << nkvh << ", ngroup: " << ngroup << ", d: " << d << ", di: " << di << ", dvoc: " << dvoc << std::endl;
+    // std::cout
+    //     << "tnbl" << "dh: " << dh << "nlayer: " << nlayer << ", nh: " << nh << ", nkvh: " << nkvh << ", ngroup: " << ngroup << ", d: " << d << ", di: " << di << ", dvoc: " << dvoc << std::endl;
 
     // 计算XLM-Roberta的 embedding 层
     for (uint32_t b = 0; b < bsz; ++b) {
         for (uint32_t t = 0; t < ntok; ++t) {
-            uint32_t flat_idx = b * ntok + t;           // flatten 后的 tokens 索引
-            uint32_t output_offset = flat_idx * d;      // logits_in 中的偏移
-            uint32_t emb_offset = tokens[flat_idx] * d; // embedding 表中的偏移
+            uint32_t flat_idx = b * ntok + t;
+            uint32_t output_offset = flat_idx * d;
+            uint32_t emb_offset = tokens[flat_idx] * d;
 
             RUN_INFINI(infinirtMemcpyAsync(
                 logits_in->data(output_offset),
@@ -150,17 +130,6 @@ void inferDeviceBatch(const BGEM3Meta *meta, BGEM3DeviceResource &rsrc,
         linear(q_buf, logits_in, weight->w_attn_q[layer]->view_as({bsz, d, d}, {0, static_cast<ptrdiff_t>(d), 1})->permute({0, 2, 1}), 1.0, 0.0, nullptr, weight->b_attn_q[layer]);
         linear(k_buf, logits_in, weight->w_attn_k[layer]->view_as({bsz, d, d}, {0, static_cast<ptrdiff_t>(d), 1})->permute({0, 2, 1}), 1.0, 0.0, nullptr, weight->b_attn_k[layer]);
         linear(v_buf, logits_in, weight->w_attn_v[layer]->view_as({bsz, d, d}, {0, static_cast<ptrdiff_t>(d), 1})->permute({0, 2, 1}), 1.0, 0.0, nullptr, weight->b_attn_v[layer]);
-
-        // for (size_t i = 0; i < (size_t)bsz; i++) {
-        //     linear(qk_buf->slice({{0, i, 1}})->view_as({nh, ntok, ntok}),
-        //            q_buf->view_as({bsz, q_buf->numel() / d / bsz, nh, d / nh})->slice({{0, i, 1}})->view_as({q_buf->numel() / d / bsz, nh, d / nh})->permute({1, 0, 2}),
-        //            k_buf->view_as({bsz, k_buf->numel() / d / bsz, nh, d / nh})->slice({{0, i, 1}})->view_as({k_buf->numel() / d / bsz, nh, d / nh})->permute({1, 2, 0}),
-        //            1.0f / std::sqrt(static_cast<float>(dh)), 0.0f, nullptr, nullptr);
-        // }
-
-        auto q_buf_copy = Tensor::buffer(dt_logits, {bsz, nh, ntok, d / nh}, rsrc.memory_pool);
-        auto k_buf_copy = Tensor::buffer(dt_logits, {bsz, nh, ntok, d / nh}, rsrc.memory_pool);
-        auto v_buf_copy = Tensor::buffer(dt_logits, {bsz, nh, ntok, d / nh}, rsrc.memory_pool);
 
         rearrange(q_buf_copy, q_buf->view_as({bsz, ntok, nh, d / nh})->permute({0, 2, 1, 3}));
         rearrange(k_buf_copy, k_buf->view_as({bsz, ntok, nh, d / nh})->permute({0, 2, 1, 3}));
@@ -254,23 +223,13 @@ void releaseDeviceResource(BGEM3DeviceResource &res) {
 
 __C void
 inferBatchBGEM3(struct BGEM3Model *model, uint32_t bsz, const uint32_t *tokens, const float *masks, uint32_t ntok,
-                const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                struct KVCache **kv_caches,
-                const float *temperature, const uint32_t *topk, const float *topp,
                 float *dense_out, float *sparse_out) {
     model->req.tokens = tokens;
     model->req.bsz = bsz;
     model->req.masks = masks;
     model->req.ntok = ntok;
-    model->req.req_lens = req_lens;
-    model->req.nreq = nreq;
-    model->req.req_pos = req_pos;
-    model->req.kv_caches = kv_caches;
     model->req.dense_out = dense_out;
     model->req.sparse_out = sparse_out;
-    model->req.temperature = temperature;
-    model->req.topk = topk;
-    model->req.topp = topp;
 
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -288,23 +247,11 @@ inferBatchBGEM3(struct BGEM3Model *model, uint32_t bsz, const uint32_t *tokens, 
 
 __C void
 forwardBatchBGEM3(struct BGEM3Model *model, uint32_t bsz,
-                  const uint32_t *tokens, const float *masks, uint32_t ntok,
-                  const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
-                  struct KVCache **kv_caches,
-                  void *logits) {
+                  const uint32_t *tokens, const float *masks, uint32_t ntok) {
     model->req.tokens = tokens;
     model->req.bsz = bsz;
     model->req.masks = masks;
     model->req.ntok = ntok;
-    model->req.req_lens = req_lens;
-    model->req.nreq = nreq;
-    model->req.req_pos = req_pos;
-    model->req.kv_caches = kv_caches;
-    // model->req.output = nullptr;
-    // model->req.logits = logits;
-    model->req.temperature = nullptr;
-    model->req.topk = nullptr;
-    model->req.topp = nullptr;
 
     for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
         std::unique_lock<std::mutex> lock(model->states[idev].mtx);
@@ -347,7 +294,7 @@ void launchDevice(const BGEM3Meta *meta, std::shared_ptr<BGEM3DeviceWeight> weig
             break;
         }
         inferDeviceBatch(meta, *rsrc, idev, ndev, req.bsz, req.tokens, req.masks, req.ntok,
-                         req.req_lens, req.nreq, req.req_pos, req.dense_out, req.sparse_out);
+                         req.dense_out, req.sparse_out);
         state.proceed = false;
         lock.unlock();
         state.cv_done.notify_one();

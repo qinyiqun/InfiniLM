@@ -46,13 +46,6 @@ struct InferRequest {
     const uint32_t *tokens;
     const float *masks;
     uint32_t ntok;
-    const uint32_t *req_lens;
-    uint32_t nreq;
-    const uint32_t *req_pos;
-    struct KVCache **kv_caches;
-    const float *temperature;
-    const uint32_t *topk;
-    const float *topp;
     float *dense_out;
     float *sparse_out;
 };
