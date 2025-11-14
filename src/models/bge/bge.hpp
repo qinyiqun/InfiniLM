@@ -44,10 +44,10 @@ struct BGEM3DeviceResource {
 struct InferRequest {
     uint32_t bsz;
     const uint32_t *tokens;
-    const float *masks;
+    const void *masks;
     uint32_t ntok;
-    float *dense_out;
-    float *sparse_out;
+    void *dense_out;
+    void *sparse_out;
 };
 
 struct InferState {

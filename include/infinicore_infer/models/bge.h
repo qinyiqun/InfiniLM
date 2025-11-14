@@ -49,11 +49,11 @@ destroyBGEM3Model(struct BGEM3Model *);
 /// @param output 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
 inferBatchBGEM3(struct BGEM3Model *, uint32_t bsz,
-                const uint32_t *tokens, const float *masks, uint32_t ntok,
+                const uint32_t *tokens, const void *masks, uint32_t ntok,
                 // const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
                 // struct KVCache **kv_caches,
                 // const float *temperature, const uint32_t *topk, const float *topp,
-                float *dense_out, float *sparse_out);
+                void *dense_out, void *sparse_out);
 
 /// @brief 批次推理一轮，输出 output embedding 后的 logits
 /// @param tokens 输入 token 地址
@@ -65,7 +65,7 @@ inferBatchBGEM3(struct BGEM3Model *, uint32_t bsz,
 /// @param logits 输出 token 数组，每个请求一个输出，长度至少为nreq
 __C __export void
 forwardBatchBGEM3(struct BGEM3Model *, uint32_t bsz,
-                  const uint32_t *tokens, const float *masks, uint32_t ntok);
+                  const uint32_t *tokens, const void *masks, uint32_t ntok);
 //   const uint32_t *req_lens, uint32_t nreq, const uint32_t *req_pos,
 //   struct KVCache **kv_caches,
 // void *logits

@@ -9,12 +9,8 @@ BGEM3Weights::BGEM3Weights(
     auto ndev = dev_ids.size();
     _device_weights.resize(ndev);
     infiniDtype_t dt_logits = meta->dt_logits;
-    // infiniDtype_t dt_norm_w = meta->dt_norm_w;
     size_t nlayer = meta->nlayer;
     size_t d = meta->d;
-    // size_t nh = meta->nh / ndev;
-    // size_t nkvh = meta->nkvh / ndev;
-    // size_t dh = meta->dh;
     size_t di = meta->di / ndev;
     size_t dctx = meta->dctx;
     size_t dvoc = meta->dvoc;
@@ -46,15 +42,15 @@ BGEM3Weights::BGEM3Weights(
         auto b_layer_norm = Tensor::weight(nullptr, dt_logits, {d});
         this->register_weight("embeddings.LayerNorm.bias", b_layer_norm, i);
         weight->b_layer_norm = b_layer_norm;
-        std::cout << "colbert!-------------------------------------" << dvoc << std::endl;
-        auto w_colbert = Tensor::weight(nullptr, dt_logits, {dvoc, d});
+
+        auto w_colbert = Tensor::weight(nullptr, dt_logits, {d, d});
         this->register_weight("colbert.Linear.weight", w_colbert, i);
         weight->w_colbert = w_colbert;
 
-        auto b_colbert = Tensor::weight(nullptr, dt_logits, {1});
+        auto b_colbert = Tensor::weight(nullptr, dt_logits, {d});
         this->register_weight("colbert.Linear.bias", b_colbert, i);
         weight->b_colbert = b_colbert;
-        std::cout << "sparse!-------------------------------------" << std::endl;
+
         auto w_sparse = Tensor::weight(nullptr, dt_logits, {1, d});
         this->register_weight("sparse.Linear.weight", w_sparse, i);
         weight->w_sparse = w_sparse;

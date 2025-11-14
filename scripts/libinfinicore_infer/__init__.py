@@ -1,5 +1,5 @@
 from .base import DataType, DeviceType, KVCacheCStruct
-from .bge import BGEM3MetaCStruct, BGEM3Model, BGEM3ModelWeightsCStruct
+from .bgem3 import BGEM3MetaCStruct, BGEM3Model, BGEM3ModelWeightsCStruct
 from .jiuge import JiugeModel, JiugeMetaCStruct, JiugeWeightsCStruct
 from .jiuge_awq import JiugeAWQModel, JiugeAWQMetaCStruct, ModelWeightsCStruct
 from .deepseek_v3 import (

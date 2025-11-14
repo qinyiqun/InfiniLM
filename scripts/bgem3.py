@@ -17,7 +17,7 @@ from libinfinicore_infer import (
 )
 from infer_task import InferTask
 
-from ctypes import c_float, c_int, c_uint, byref
+from ctypes import c_float, c_int, c_uint, byref, c_uint16
 import numpy as np
 
 torch.set_default_device("cpu")
@@ -71,7 +71,10 @@ class BGEM3BatchedTask:
         
         # Convert to ctypes arrays in one pass
         self.tokens = (c_uint * (self.ntok * self.bsz))(*flat_tokens)
-        self.masks = (c_float * (self.ntok * self.ntok * self.bsz))(*flat_masks)
+        elem_type = c_float if tasks[0].dtype == torch.float32 else c_uint16
+        # 如果是 uint16 但数据是 float，先转整数
+        flat_masks = tasks[0].masks.flatten().tolist() if tasks[0].dtype == torch.float32 else tasks[0].masks.flatten().view(torch.uint16).tolist() 
+        self.masks = (elem_type * (self.ntok * self.ntok * self.bsz))(*flat_masks)  
 
     def input_args(self):
         return (
@@ -84,9 +87,8 @@ class BGEM3BatchedTask:
         
 class BGEM3ForCausalLM:
     def __init__(
-        self, model_dir_path, device=DeviceType.DEVICE_TYPE_CPU, ndev=1, max_tokens=None
+        self, model_dir_path, device=DeviceType.DEVICE_TYPE_CPU, ndev=1, max_tokens=None, use_fp16=False
     ):
-
         load_start_time = time.time()
         print(f"Creating model on {ndev} devices...")
         with open(os.path.join(model_dir_path, "config.json"), "r") as f:
@@ -99,8 +101,9 @@ class BGEM3ForCausalLM:
         self.dev_ids = (c_int * ndev)(*[i for i in range(ndev)])
         self.ndev = ndev
         self.device = device
-        self.meta = BGEM3MetaFromConfig(config, dtype=torch.float32, max_tokens=max_tokens)
-
+        self.dtype = torch.float32 if use_fp16==False else torch.float16
+        self.meta = BGEM3MetaFromConfig(config, self.dtype, max_tokens=max_tokens) 
+        
         self.bge_model = BGEM3Model()
         self.weights = self.bge_model.create_weights(
             byref(self.meta),
@@ -117,9 +120,7 @@ class BGEM3ForCausalLM:
 
         load_start_time = time.time()
         print("Loading model weights to host...")
-
-        self.load_all_safetensors_from_dir(os.path.join(model_dir_path))
-        
+        self.load_all_safetensors_from_dir(os.path.join(model_dir_path), self.dtype)
         self.model_instance = self.bge_model.create_model(
             byref(self.meta),
             self.weights,
@@ -127,24 +128,24 @@ class BGEM3ForCausalLM:
         load_end_time = time.time()
         print(f"Time used: {load_end_time - load_start_time:.3f}s")
 
-    def load_all_safetensors_from_dir(self, dir_path_: str):
+    def load_all_safetensors_from_dir(self, dir_path_: str, dtype:torch.dtype):
         dir_path_ = Path(dir_path_)
-        model = transformers.AutoModel.from_pretrained(dir_path_, trust_remote_code=False)
+        model = transformers.AutoModel.from_pretrained(dir_path_, trust_remote_code=False).to(dtype)
         
         colert_linear = torch.load(dir_path_/'colbert_linear.pt', map_location='cpu', weights_only=True)
+        
         sparse_linear = torch.load(dir_path_/'sparse_linear.pt', map_location='cpu', weights_only=True)
         
-        sparse_linear['weight'] = sparse_linear['weight'].to(torch.float32)
-        sparse_linear['bias'] = sparse_linear['bias'].to(torch.float32)
+        sparse_linear['weight'] = sparse_linear['weight'].to(dtype)
+        sparse_linear['bias'] = sparse_linear['bias'].to(dtype)
         
-        colert_linear['weight'] = colert_linear['weight'].to(torch.float32)
-        colert_linear['bias'] = colert_linear['bias'].to(torch.float32)
-        
+        colert_linear['weight'] = colert_linear['weight'].to(dtype)
+        colert_linear['bias'] = colert_linear['bias'].to(dtype)
         for name, tensor in model.state_dict().items():
             self.bge_model.load_weight(
                 self.weights, name, tensor.data_ptr()
             )
-
+            
         self.bge_model.load_weight(self.weights, 'sparse.Linear.weight', sparse_linear['weight'].data_ptr())
         self.bge_model.load_weight(self.weights, 'sparse.Linear.bias', sparse_linear['bias'].data_ptr())
         
@@ -155,8 +156,8 @@ class BGEM3ForCausalLM:
         return self.meta.dctx
     
     def batch_infer_one_round(self, tasks: InferTask):
-        dense_out = (c_float * (tasks[0].bsz * 1024))()
-        sparse_out = (c_float * (tasks[0].bsz * tasks[0].tokens.shape[1]))()
+        dense_out = (c_float * (tasks[0].bsz * 1024))() if tasks[0].dtype == torch.float32 else (c_uint16 * (tasks[0].bsz * 1024))()
+        sparse_out = (c_float * (tasks[0].bsz * tasks[0].tokens.shape[1]))() if tasks[0].dtype == torch.float32 else (c_uint16 * (tasks[0].bsz * tasks[0].tokens.shape[1]))()
         batch_inputs = BGEM3BatchedTask(tasks)
         self.bge_model.infer_batch(
             self.model_instance,
@@ -191,10 +192,9 @@ class BGEM3ForCausalLM:
                     return_tensors='pt',
                 ).to('cuda')
         bsz, src_len = inputs_batch['attention_mask'].size()
-        expanded_mask = inputs_batch['attention_mask'][:, None, None, :].expand(bsz, 1, src_len, src_len).to(torch.float32)
-        inverted_mask = torch.tensor(1.0, dtype=torch.float32) - expanded_mask
-        inputs_batch['attention_mask'] = inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(torch.float32).min)
-
+        expanded_mask = inputs_batch['attention_mask'][:, None, None, :].expand(bsz, 1, src_len, src_len).to(self.dtype)
+        inverted_mask = torch.tensor(1.0, dtype=self.dtype) - expanded_mask
+        inputs_batch['attention_mask'] = inverted_mask.masked_fill(inverted_mask.to(torch.bool), torch.finfo(self.dtype).min)
         infer_task = InferTask(
             0,
             inputs_batch['input_ids'],
@@ -204,6 +204,7 @@ class BGEM3ForCausalLM:
             0,
             0,
             self.eos_token_id,
+            self.dtype,
         )
 
         start_time = time.time()
@@ -226,7 +227,7 @@ class BGEM3ForCausalLM:
                         result[idx] = w
             return result
 
-        sparse_out = torch.frombuffer(output_tokens["sparse_vecs"], dtype=torch.float32, count=bsz*src_len).view(bsz, src_len, 1).clone()
+        sparse_out = torch.frombuffer(output_tokens["sparse_vecs"], dtype=self.dtype, count=bsz*src_len).view(bsz, src_len, 1).clone()
 
         if return_sparse:
             token_weights = sparse_out.squeeze(-1)
@@ -236,7 +237,7 @@ class BGEM3ForCausalLM:
                     token_weights.cpu().numpy(),
                     inputs_batch['input_ids'].cpu().numpy().tolist()
             )))
-        dense_out = torch.frombuffer(output_tokens["dense_vecs"], dtype=torch.float32, count=bsz*1024).view(bsz, 1024).clone()
+        dense_out = torch.frombuffer(output_tokens["dense_vecs"], dtype=self.dtype, count=bsz*1024).view(bsz, 1024).clone()
         if return_dense:
             all_dense_embeddings.append(dense_out.cpu().numpy())
             
@@ -282,10 +283,11 @@ def test():
         sys.exit(1)
 
     ndev = int(sys.argv[3]) if len(sys.argv) > 3 else 1
-    model = BGEM3ForCausalLM(model_path, device_type, ndev)
-    for i in range(0,3):
+    model = BGEM3ForCausalLM(model_path, device_type, ndev, use_fp16=True)
+    for i in range(0,100):
         embeddings, time = model.generate(["What is BGE M3?", "What the fuck you are doing, you hit me, you a damn guy", "Tell me, look in my eyes, tell me.", "EVE is the shabiest game in china, its planner is the shabiest people."], 12, 8192, True, True)
         print(time)
+        print(embeddings)
    
     model.destroy_model_instance()
 

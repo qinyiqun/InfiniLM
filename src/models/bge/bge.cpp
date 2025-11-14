@@ -31,8 +31,8 @@ position_ids_from_input_ids(const uint32_t *input_ids,
 
 void inferDeviceBatch(const BGEM3Meta *meta, BGEM3DeviceResource &rsrc,
                       uint32_t idev, uint32_t ndev, uint32_t bsz,
-                      const uint32_t *tokens, const float *masks, uint32_t ntok,
-                      float *dense_out, float *sparse_out) {
+                      const uint32_t *tokens, const void *masks, uint32_t ntok,
+                      void *dense_out, void *sparse_out) {
     auto nlayer = meta->nlayer;
     auto nkvh = meta->nkvh / ndev;
     auto nh = meta->nh / ndev;
@@ -141,7 +141,9 @@ void inferDeviceBatch(const BGEM3Meta *meta, BGEM3DeviceResource &rsrc,
                1.0f / std::sqrt(static_cast<float>(dh)), 0.0f, nullptr, nullptr);
 
         add(qk_buf, qk_buf, attn_masks->view_as({bsz, nh, ntok, ntok}, {ntok * ntok, 0, ntok, 1}));
+
         softmax(qk_buf, qk_buf, -1);
+
         linear(v_buf->view_as({nh * bsz, ntok, d / nh}),
                qk_buf->view_as({bsz * nh, ntok, ntok}), v_buf_copy->view_as({nh * bsz, ntok, d / nh}),
                1.0, 0.0, nullptr, nullptr);
@@ -154,6 +156,7 @@ void inferDeviceBatch(const BGEM3Meta *meta, BGEM3DeviceResource &rsrc,
         add(logits_in, logits_in, logits_in_copy); // residual connection
         layerNorm(logits_in, nullptr, nullptr, logits_in, weight->w_attn_layer_norm[layer], weight->b_attn_layer_norm[layer], 1e-5);
         // InterMediate Layer
+
         linear(inter_buf, logits_in,
                weight->w_intermediate[layer]->view_as({bsz, di, d}, {0, static_cast<ptrdiff_t>(d), 1})->permute({0, 2, 1}),
                1.0, 0.0, nullptr, weight->b_intermediate[layer]);
@@ -178,10 +181,10 @@ void inferDeviceBatch(const BGEM3Meta *meta, BGEM3DeviceResource &rsrc,
 
     RUN_INFINI(infinirtStreamSynchronize(stream));
     RUN_INFINI(infinirtMemcpy(sparse_out, sparse_buf->data(),
-                              sizeof(float) * ntok * bsz, INFINIRT_MEMCPY_D2H));
+                              dsize(dt_logits) * ntok * bsz, INFINIRT_MEMCPY_D2H));
 
     RUN_INFINI(infinirtMemcpy(dense_out, dense_buf->data(),
-                              sizeof(float) * bsz * d, INFINIRT_MEMCPY_D2H));
+                              dsize(dt_logits) * bsz * d, INFINIRT_MEMCPY_D2H));
 }
 
 void createDeviceResource(BGEM3DeviceResource *rsrc, const BGEM3Meta *meta,
@@ -222,8 +225,8 @@ void releaseDeviceResource(BGEM3DeviceResource &res) {
 }
 
 __C void
-inferBatchBGEM3(struct BGEM3Model *model, uint32_t bsz, const uint32_t *tokens, const float *masks, uint32_t ntok,
-                float *dense_out, float *sparse_out) {
+inferBatchBGEM3(struct BGEM3Model *model, uint32_t bsz, const uint32_t *tokens, const void *masks, uint32_t ntok,
+                void *dense_out, void *sparse_out) {
     model->req.tokens = tokens;
     model->req.bsz = bsz;
     model->req.masks = masks;
@@ -247,7 +250,7 @@ inferBatchBGEM3(struct BGEM3Model *model, uint32_t bsz, const uint32_t *tokens, 
 
 __C void
 forwardBatchBGEM3(struct BGEM3Model *model, uint32_t bsz,
-                  const uint32_t *tokens, const float *masks, uint32_t ntok) {
+                  const uint32_t *tokens, const void *masks, uint32_t ntok) {
     model->req.tokens = tokens;
     model->req.bsz = bsz;
     model->req.masks = masks;

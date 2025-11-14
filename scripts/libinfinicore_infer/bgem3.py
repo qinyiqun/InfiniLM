@@ -68,13 +68,6 @@ class BGEM3Model(BaseModel):
         tokens,
         masks,
         ntok,
-        # req_lens,
-        # nreq,
-        # req_pos,
-        # kv_caches,
-        # temperature,
-        # topk,
-        # topp,
         dense_out,
         sparse_out,
     ):
@@ -84,21 +77,11 @@ class BGEM3Model(BaseModel):
             tokens,
             masks,
             ntok,
-            # req_lens,
-            # nreq,
-            # req_pos,
-            # kv_caches,
-            # temperature,
-            # topk,
-            # topp,
             dense_out,
             sparse_out,
         )
 
     def forward_batch(self, model, tokens, ntok):
-        # self, model, tokens, ntok, req_lens, nreq, req_pos, kv_caches, logits
-    
         self.lib.forwardBatchBGEM3(
             model, tokens, ntok
-            # , req_lens, nreq, req_pos, kv_caches, logits
         )

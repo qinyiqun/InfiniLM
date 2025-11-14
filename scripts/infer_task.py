@@ -1,5 +1,5 @@
 class InferTask:
-    def __init__(self, id, tokens, masks, max_tokens, temperature, topk, topp, end_tokens):
+    def __init__(self, id, tokens, masks, max_tokens, temperature, topk, topp, end_tokens, dtype):
         self.id = id
         self.finish_reason = None
         self.bsz = tokens.shape[0]
@@ -12,6 +12,7 @@ class InferTask:
         self.end_tokens = end_tokens
         self._kv_cache = None
         self.pos = 0
+        self.dtype = dtype
 
     def bind_kvcache(self, kv_cache, pos=0):
         self._kv_cache = kv_cache
