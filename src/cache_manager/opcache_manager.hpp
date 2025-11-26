@@ -159,6 +159,7 @@ public:
     DECLARE_OP_CACHE(Rearrange)
     DECLARE_OP_CACHE(CausalSoftmax)
     DECLARE_OP_CACHE(Topkrouter)
+    DECLARE_OP_CACHE(Sigmoid)
     DECLARE_OP_CACHE(SwiGLU)
     DECLARE_OP_CACHE(RandomSample)
     DECLARE_OP_CACHE(DequantizeAWQ)
@@ -177,6 +178,7 @@ public:
           Rearrange_cache(capacity, DESTROY_FUNC(Rearrange)),
           CausalSoftmax_cache(capacity, DESTROY_FUNC(CausalSoftmax)),
           Topkrouter_cache(capacity, DESTROY_FUNC(Topkrouter)),
+          Sigmoid_cache(capacity, DESTROY_FUNC(Sigmoid)),
           SwiGLU_cache(capacity, DESTROY_FUNC(SwiGLU)),
           RandomSample_cache(capacity, DESTROY_FUNC(RandomSample)),
           DequantizeAWQ_cache(capacity, DESTROY_FUNC(DequantizeAWQ)),

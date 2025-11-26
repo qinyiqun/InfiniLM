@@ -83,6 +83,8 @@ struct InferenceContext {
                 float eps);
     void relu(std::shared_ptr<Tensor> out,
               std::shared_ptr<Tensor> in);
+    void sigmoid(std::shared_ptr<Tensor> out,
+                 std::shared_ptr<Tensor> in);
 };
 
 namespace {
@@ -208,4 +210,9 @@ inline void lpNorm(std::shared_ptr<Tensor> out,
 inline void relu(std::shared_ptr<Tensor> out,
                  std::shared_ptr<Tensor> in) {
     getInferenceContext().relu(out, in);
+}
+
+inline void sigmoid(std::shared_ptr<Tensor> out,
+                    std::shared_ptr<Tensor> in) {
+    getInferenceContext().sigmoid(out, in);
 }

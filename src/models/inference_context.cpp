@@ -414,3 +414,23 @@ void InferenceContext::relu(std::shared_ptr<Tensor> out,
     RUN_INFINI(infiniopRelu(desc, workspace, workspace_size,
                             out->data(), in->data(), stream));
 }
+
+void InferenceContext::sigmoid(std::shared_ptr<Tensor> out,
+                               std::shared_ptr<Tensor> in) {
+    size_t key = CacheManager::createDescriptorKey(out, in);
+
+    infiniopSigmoidDescriptor_t desc;
+    if (!cache_manager->getSigmoidDescriptor(key, desc)) {
+        RUN_INFINI(infiniopCreateSigmoidDescriptor(
+            op_handle, &desc, out->desc(), in->desc()));
+        cache_manager->putSigmoidDescriptor(key, desc);
+    }
+
+    size_t workspace_size = 0;
+    RUN_INFINI(infiniopGetSigmoidWorkspaceSize(desc, &workspace_size));
+    ensure_workspace(workspace_size);
+    void *workspace = workspace_storage->memory();
+
+    RUN_INFINI(infiniopSigmoid(desc, workspace, workspace_size,
+                               out->data(), in->data(), stream));
+}

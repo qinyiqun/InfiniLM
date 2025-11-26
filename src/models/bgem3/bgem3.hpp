@@ -1,5 +1,5 @@
 #pragma once
-#include "infinicore_infer/models/bge.h"
+#include "infinicore_infer/models/bgem3.h"
 
 #include "../../cache.hpp"
 #include "../../dataloader/weights_loader.hpp"

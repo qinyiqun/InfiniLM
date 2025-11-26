@@ -89,7 +89,13 @@ loadModelWeight(struct ModelWeights *weights_, const char *name, void *data) {
 __C void
 loadBGEM3ModelWeight(struct BGEM3ModelWeights *weights_, const char *name, void *data) {
     std::string name_str(name);
-    // std::cout << "Loading weight: " << name_str << std::endl;
+    auto weights = reinterpret_cast<infinicore::weights::Loader *>(weights_);
+    weights->load(name_str, data);
+}
+
+__C void
+loadBGERerankerModelWeight(struct BGERerankerModelWeights *weights_, const char *name, void *data) {
+    std::string name_str(name);
     auto weights = reinterpret_cast<infinicore::weights::Loader *>(weights_);
     weights->load(name_str, data);
 }

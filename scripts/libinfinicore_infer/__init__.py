@@ -1,5 +1,6 @@
 from .base import DataType, DeviceType, KVCacheCStruct
 from .bgem3 import BGEM3MetaCStruct, BGEM3Model, BGEM3ModelWeightsCStruct
+from .bge_reranker import BGERerankerModel, BGERerankerMetaCStruct, BGERerankerModelWeightsCStruct
 from .jiuge import JiugeModel, JiugeMetaCStruct, JiugeWeightsCStruct
 from .jiuge_awq import JiugeAWQModel, JiugeAWQMetaCStruct, ModelWeightsCStruct
 from .deepseek_v3 import (
@@ -27,5 +28,9 @@ __all__ = [
     "ModelRegister",
     "BGEM3MetaCStruct",
     "BGEM3Model",
-    "BGEM3ModelWeightsCStruct"
+    "BGEM3ModelWeightsCStruct",
+    "BGERerankerMetaCStruct",
+    "BGERerankerModel",
+    "BGERerankerModelWeightsCStruct"
+    
 ]

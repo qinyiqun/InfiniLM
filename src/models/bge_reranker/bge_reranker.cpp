@@ -1,0 +1,351 @@
+#include "bge_reranker.hpp"
+
+#include "../../tensor.hpp"
+#include "../../utils.hpp"
+#include "../inference_context.hpp"
+
+#include <random>
+#include <thread>
+#include <vector>
+
+inline std::vector<int32_t>
+position_ids_from_input_ids(const uint32_t *input_ids,
+                            std::size_t seq_len,
+                            std::size_t bsz,
+                            uint32_t padding_idx) {
+    std::vector<int32_t> pos;
+    pos.reserve(bsz * seq_len); // 注意：总长度是 bsz * seq_len
+
+    for (std::size_t b = 0; b < bsz; ++b) {
+        int32_t cum = 0; // 每个 batch 独立累计
+        for (std::size_t t = 0; t < seq_len; ++t) {
+            std::size_t flat_idx = b * seq_len + t;
+            int32_t m = (input_ids[flat_idx] != padding_idx);
+            cum += m;
+            pos.push_back(cum * m + static_cast<int32_t>(padding_idx));
+        }
+    }
+
+    return pos; // NRVO, no copy
+}
+
+void inferDeviceBatch(const BGERerankerMeta *meta, BGERerankerDeviceResource &rsrc,
+                      uint32_t idev, uint32_t ndev, uint32_t bsz,
+                      const uint32_t *tokens, const void *masks, uint32_t ntok,
+                      void *dense_out, void *sparse_out) {
+    auto nlayer = meta->nlayer;
+    auto nkvh = meta->nkvh / ndev;
+    auto nh = meta->nh / ndev;
+    auto dh = meta->dh;
+    auto d = meta->d;
+    auto dt_logits = meta->dt_logits;
+    auto di = meta->di / ndev;
+    auto stream = rsrc.stream;
+    auto weight = rsrc.weights;
+
+    std::shared_ptr<Tensor> attn_masks = Tensor::weight((void *)masks, dt_logits, {bsz, 1, ntok, ntok});
+    auto logits_in = Tensor::buffer(dt_logits, {bsz, ntok, d}, rsrc.memory_pool);
+    auto logits_in_copy = Tensor::buffer(dt_logits, {bsz, ntok, d}, rsrc.memory_pool);
+
+    auto attention_mask = Tensor::buffer(dt_logits, {bsz, ntok, ntok}, rsrc.memory_pool);
+
+    auto pos = position_ids_from_input_ids(tokens, ntok, bsz, 1);
+    auto pos_buf = Tensor::buffer(dt_logits, {bsz, ntok, d}, rsrc.memory_pool);
+    uint32_t token_type_ids[bsz * ntok] = {};
+    auto token_type_buf = Tensor::buffer(dt_logits, {bsz, ntok, d}, rsrc.memory_pool);
+
+    auto q_buf = Tensor::buffer(dt_logits, {bsz, ntok, nh * dh}, rsrc.memory_pool);
+    auto k_buf = Tensor::buffer(dt_logits, {bsz, ntok, nkvh * dh}, rsrc.memory_pool);
+    auto v_buf = Tensor::buffer(dt_logits, {bsz, ntok, nkvh * dh}, rsrc.memory_pool);
+
+    auto q_buf_copy = Tensor::buffer(dt_logits, {bsz, nh, ntok, d / nh}, rsrc.memory_pool);
+    auto k_buf_copy = Tensor::buffer(dt_logits, {bsz, nh, ntok, d / nh}, rsrc.memory_pool);
+    auto v_buf_copy = Tensor::buffer(dt_logits, {bsz, nh, ntok, d / nh}, rsrc.memory_pool);
+
+    auto qk_buf = Tensor::buffer(dt_logits, {bsz, nh, ntok, ntok}, rsrc.memory_pool);
+    auto inter_buf = Tensor::buffer(dt_logits, {bsz, ntok, di}, rsrc.memory_pool);
+
+    auto classifier = Tensor::buffer(dt_logits, {bsz, 1, d}, rsrc.memory_pool);
+    auto out_buf = Tensor::buffer(dt_logits, {bsz, 1}, rsrc.memory_pool);
+
+    // 计算XLM-Roberta的 embedding 层
+    for (uint32_t b = 0; b < bsz; ++b) {
+        for (uint32_t t = 0; t < ntok; ++t) {
+            uint32_t flat_idx = b * ntok + t;
+            uint32_t output_offset = flat_idx * d;
+            uint32_t emb_offset = tokens[flat_idx] * d;
+
+            RUN_INFINI(infinirtMemcpyAsync(
+                logits_in->data(output_offset),
+                weight->w_word_embd->data(emb_offset),
+                dsize(dt_logits) * d,
+                INFINIRT_MEMCPY_D2D,
+                stream));
+        }
+    }
+
+    // Position Embedding: pos is [bsz * ntok]
+    for (uint32_t b = 0; b < bsz; ++b) {
+        for (uint32_t t = 0; t < ntok; ++t) {
+            uint32_t flat_idx = b * ntok + t;
+            uint32_t output_offset = flat_idx * d;
+            uint32_t pos_emb_offset = pos[flat_idx] * d;
+
+            RUN_INFINI(infinirtMemcpyAsync(
+                pos_buf->data(output_offset),
+                weight->w_pos_embd->data(pos_emb_offset),
+                dsize(dt_logits) * d,
+                INFINIRT_MEMCPY_D2D,
+                stream));
+        }
+    }
+
+    // Token Type Embedding: token_type_ids is [bsz * ntok]
+    for (uint32_t b = 0; b < bsz; ++b) {
+        for (uint32_t t = 0; t < ntok; ++t) {
+            uint32_t flat_idx = b * ntok + t;
+            uint32_t output_offset = flat_idx * d;
+            uint32_t tok_type_emb_offset = token_type_ids[flat_idx] * d;
+
+            RUN_INFINI(infinirtMemcpyAsync(
+                token_type_buf->data(output_offset),
+                weight->w_tok_embd->data(tok_type_emb_offset),
+                dsize(dt_logits) * d,
+                INFINIRT_MEMCPY_D2D,
+                stream));
+        }
+    }
+    add(logits_in, logits_in, pos_buf);
+    add(logits_in, logits_in, token_type_buf);
+    layerNorm(logits_in, nullptr, nullptr, logits_in, weight->w_layer_norm, weight->b_layer_norm, 1e-5);
+
+    // 接下来就是Attention层的计算
+    for (uint32_t layer = 0; layer < nlayer; layer++) {
+        rearrange(logits_in_copy, logits_in); // 保存一份输入用于残差连接
+
+        linear(q_buf, logits_in, weight->w_attn_q[layer]->view_as({bsz, d, d}, {0, static_cast<ptrdiff_t>(d), 1})->permute({0, 2, 1}), 1.0, 0.0, nullptr, weight->b_attn_q[layer]);
+        linear(k_buf, logits_in, weight->w_attn_k[layer]->view_as({bsz, d, d}, {0, static_cast<ptrdiff_t>(d), 1})->permute({0, 2, 1}), 1.0, 0.0, nullptr, weight->b_attn_k[layer]);
+        linear(v_buf, logits_in, weight->w_attn_v[layer]->view_as({bsz, d, d}, {0, static_cast<ptrdiff_t>(d), 1})->permute({0, 2, 1}), 1.0, 0.0, nullptr, weight->b_attn_v[layer]);
+
+        rearrange(q_buf_copy, q_buf->view_as({bsz, ntok, nh, d / nh})->permute({0, 2, 1, 3}));
+        rearrange(k_buf_copy, k_buf->view_as({bsz, ntok, nh, d / nh})->permute({0, 2, 1, 3}));
+        rearrange(v_buf_copy, v_buf->view_as({bsz, ntok, nh, d / nh})->permute({0, 2, 1, 3}));
+
+        linear(qk_buf->view_as({bsz * nh, ntok, ntok}),
+               q_buf_copy->view_as({nh * bsz, ntok, d / nh}),
+               k_buf_copy->view_as({nh * bsz, ntok, d / nh})->permute({0, 2, 1}),
+               1.0f / std::sqrt(static_cast<float>(dh)), 0.0f, nullptr, nullptr);
+
+        add(qk_buf, qk_buf, attn_masks->view_as({bsz, nh, ntok, ntok}, {ntok * ntok, 0, ntok, 1}));
+
+        softmax(qk_buf, qk_buf, -1);
+
+        linear(v_buf->view_as({nh * bsz, ntok, d / nh}),
+               qk_buf->view_as({bsz * nh, ntok, ntok}), v_buf_copy->view_as({nh * bsz, ntok, d / nh}),
+               1.0, 0.0, nullptr, nullptr);
+
+        rearrange(v_buf_copy->view_as({bsz, ntok, nh, d / nh}), v_buf->view_as({bsz, nh, ntok, d / nh})->permute({0, 2, 1, 3}));
+        linear(logits_in, v_buf_copy->view_as({bsz, ntok, d}),
+               weight->w_attn_out[layer]->view_as({bsz, d, d}, {0, static_cast<ptrdiff_t>(d), 1})->permute({0, 2, 1}),
+               1.0, 0.0, nullptr, weight->b_attn_out[layer]);
+
+        add(logits_in, logits_in, logits_in_copy); // residual connection
+        layerNorm(logits_in, nullptr, nullptr, logits_in, weight->w_attn_layer_norm[layer], weight->b_attn_layer_norm[layer], 1e-5);
+        // InterMediate Layer
+
+        linear(inter_buf, logits_in,
+               weight->w_intermediate[layer]->view_as({bsz, di, d}, {0, static_cast<ptrdiff_t>(d), 1})->permute({0, 2, 1}),
+               1.0, 0.0, nullptr, weight->b_intermediate[layer]);
+        gelu(inter_buf, inter_buf);
+
+        linear(logits_in_copy, inter_buf,
+               weight->w_out[layer]->view_as({bsz, d, di}, {0, static_cast<ptrdiff_t>(di), 1})->permute({0, 2, 1}),
+               1.0, 0.0, nullptr, weight->b_out[layer]);
+
+        add(logits_in, logits_in, logits_in_copy); // residual connection
+        layerNorm(logits_in, nullptr, nullptr, logits_in, weight->w_out_layer_norm[layer], weight->b_out_layer_norm[layer], 1e-5);
+    }
+
+    // Classifier Head
+    linear(classifier, logits_in->slice({{1, 0, 1}}), weight->w_dense_cls->view_as({bsz, d, d}, {0, static_cast<ptrdiff_t>(d), 1})->permute({0, 2, 1}), 1.0, 0.0, nullptr, weight->b_dense_cls);
+    tanh(classifier, classifier);
+    linear(out_buf, classifier->view_as({bsz, d}), weight->w_out_cls->view_as({1, d})->permute({1, 0}), 1.0, 0.0, nullptr, weight->b_out_cls);
+    out_buf->debug();
+    sigmoid(out_buf, out_buf);
+    out_buf->debug();
+    exit(0);
+    RUN_INFINI(infinirtStreamSynchronize(stream));
+    // RUN_INFINI(infinirtMemcpy(sparse_out, sparse_buf->data(),
+    //                           dsize(dt_logits) * ntok * bsz, INFINIRT_MEMCPY_D2H));
+
+    // RUN_INFINI(infinirtMemcpy(dense_out, dense_buf->data(),
+    //                           dsize(dt_logits) * bsz * d, INFINIRT_MEMCPY_D2H));
+}
+
+void createDeviceResource(BGERerankerDeviceResource *rsrc, const BGERerankerMeta *meta,
+                          std::shared_ptr<BGERerankerDeviceWeight> weights,
+                          infiniDevice_t device, int idev,
+                          int ndev, int dev_id,
+                          infinicclComm_t comm) {
+    RUN_INFINI(infinirtSetDevice(device, dev_id));
+    infiniopHandle_t handle;
+    infiniopCreateHandle(&handle);
+    infinirtStream_t stream;
+    infinirtStreamCreate(&stream);
+
+    auto memory_pool = std::make_shared<MemoryPool>(128 * 1024 * 1024);
+
+    *rsrc = BGERerankerDeviceResource{
+        device,
+        dev_id,
+        handle,
+        weights,
+        stream,
+        comm,
+        memory_pool,
+    };
+    RUN_INFINI(infinirtDeviceSynchronize());
+}
+
+void releaseDeviceResource(BGERerankerDeviceResource &res) {
+    infinirtDeviceSynchronize();
+    // Release individual Tensors
+
+    infiniopDestroyHandle(res.handle);
+    res.handle = nullptr;
+    infinirtStreamDestroy(res.stream);
+    res.stream = nullptr;
+    infinicclCommDestroy(res.comm);
+    res.comm = nullptr;
+}
+
+__C void
+inferBatchBGEReranker(struct BGERerankerModel *model, uint32_t bsz, const uint32_t *tokens, const void *masks, uint32_t ntok,
+                      void *dense_out, void *sparse_out) {
+    model->req.tokens = tokens;
+    model->req.bsz = bsz;
+    model->req.masks = masks;
+    model->req.ntok = ntok;
+    model->req.dense_out = dense_out;
+    model->req.sparse_out = sparse_out;
+
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+}
+
+__C void
+forwardBatchBGEReranker(struct BGERerankerModel *model, uint32_t bsz,
+                        const uint32_t *tokens, const void *masks, uint32_t ntok) {
+    model->req.tokens = tokens;
+    model->req.bsz = bsz;
+    model->req.masks = masks;
+    model->req.ntok = ntok;
+
+    for (size_t idev = 0; idev < model->dev_ids.size(); idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].proceed = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+    for (size_t i = model->dev_ids.size(); i > 0; i--) {
+        auto idev = i - 1;
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].cv_done.wait(lock, [&] { return !(model->states[idev].proceed); });
+        lock.unlock();
+    }
+}
+
+void launchDevice(const BGERerankerMeta *meta, std::shared_ptr<BGERerankerDeviceWeight> weights, BGERerankerDeviceResource *rsrc, InferState &state, InferRequest &req,
+                  infiniDevice_t device, int idev, int ndev, int dev_id, infinicclComm_t comm) {
+    // Create Device Resource
+    createDeviceResource(rsrc, meta, weights, device, idev, ndev, dev_id, comm);
+
+    CacheManager cache_manager(100);
+    InferenceContext ctx(rsrc->handle, rsrc->memory_pool, &cache_manager, rsrc->stream);
+
+    // Set the inference context for this thread
+    setInferenceContext(&ctx);
+
+    {
+        std::unique_lock<std::mutex> lock(state.mtx);
+        state.loaded = true;
+        lock.unlock();
+        state.cv_load.notify_one();
+    }
+
+    // Infer Loop
+    while (true) {
+        std::unique_lock<std::mutex> lock(state.mtx);
+        state.cv_start.wait(lock, [&] { return state.proceed || state.exit_flag; });
+        // quit if exit_flag is set
+        if (state.exit_flag) {
+            break;
+        }
+        inferDeviceBatch(meta, *rsrc, idev, ndev, req.bsz, req.tokens, req.masks, req.ntok,
+                         req.dense_out, req.sparse_out);
+        state.proceed = false;
+        lock.unlock();
+        state.cv_done.notify_one();
+    }
+
+    // Clean-Up
+    releaseDeviceResource(*rsrc);
+    setInferenceContext(nullptr); // Clear the context when done
+}
+
+BGERerankerModel::BGERerankerModel(const BGERerankerMeta *meta, const ModelWeights *weights_) {
+    auto weights = (BGERerankerWeights *)(weights_);
+    device = weights->device();
+    dev_ids = weights->devIds();
+    int ndev = int(dev_ids.size());
+    dev_resources = std::vector<BGERerankerDeviceResource>(ndev);
+    states = std::vector<InferState>(ndev);
+    threads.resize(ndev);
+
+    auto comms = std::vector<infinicclComm_t>(ndev, nullptr);
+    if (ndev > 1) {
+        RUN_INFINI(infinicclCommInitAll(device, comms.data(), ndev, dev_ids.data()));
+    }
+    for (int i = 0; i < ndev; i++) {
+        threads[i] = std::thread(launchDevice, meta, weights->device_weights()[i], &dev_resources[i], std::ref(states[i]), std::ref(req), device, i, ndev, dev_ids[i], comms[i]);
+    }
+    for (int i = 0; i < ndev; i++) {
+        std::unique_lock<std::mutex> lock(states[i].mtx);
+        states[i].cv_load.wait(lock, [&] { return states[i].loaded; });
+        lock.unlock();
+    }
+}
+
+__C struct BGERerankerModel *
+createBGERerankerModel(const BGERerankerMeta *meta,
+                       const ModelWeights *weights) {
+    BGERerankerModel *model = new BGERerankerModel(meta, weights);
+    return model;
+}
+
+__C void destroyBGERerankerModel(struct BGERerankerModel *model) {
+    auto ndev = model->dev_resources.size();
+
+    for (size_t idev = 0; idev < ndev; idev++) {
+        std::unique_lock<std::mutex> lock(model->states[idev].mtx);
+        model->states[idev].exit_flag = true;
+        lock.unlock();
+        model->states[idev].cv_start.notify_one();
+    }
+
+    for (size_t idev = 0; idev < ndev; idev++) {
+        model->threads[idev].join();
+    }
+
+    delete model;
+}

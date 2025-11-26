@@ -14,4 +14,7 @@ loadModelWeightDistributed(struct ModelWeights *weights, const char *name, void 
 __C __export void
 loadBGEM3ModelWeight(struct BGEM3ModelWeights *weights, const char *name, void *data);
 
+__C __export void
+loadBGERerankerModelWeight(struct BGERerankerModelWeights *weights, const char *name, void *data);
+
 #endif // WEIGHTS_LOADER_H
