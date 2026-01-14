@@ -45,11 +45,27 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
     }
 
     // Initialize projection layers
-    INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
-                             dtype, device, rank_info);
-    // Output projection uses attention_output_bias (can be different from qkv)
-    INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
-                              dtype, device, tp_rank, tp_size, rank_info.comm);
+    if (!config.quant_config.has_value()) {
+        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
+                                 dtype, device, rank_info);
+        // Output projection uses attention_output_bias (can be different from qkv)
+        INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+
+    } else {
+        switch (config.quant_config.value().get_quant_type()) {
+        case infinicore::nn::QuantType::COMPRESSED_TENSOR: {
+            INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
+                                          dtype, device, rank_info, config.quant_config.value());
+
+            INFINICORE_NN_MODULE_INIT(o_proj, hidden_size_, hidden_size_, use_output_bias_,
+                                      dtype, device, tp_rank, tp_size, rank_info.comm, config.quant_config.value());
+            break;
+        }
+        default: {
+        }
+        }
+    }
 }
 
 infinicore::Tensor LlamaAttention::forward(const infinicore::Tensor &hidden_states,
