@@ -43,6 +43,12 @@ def get_args():
     )
 
     parser.add_argument(
+        "--qy",
+        action="store_true",
+        help="Run qy test",
+    )
+
+    parser.add_argument(
         "--metax",
         action="store_true",
         help="Run metax test",
@@ -137,6 +143,8 @@ if __name__ == "__main__":
         device = "cpu"
     elif args.nvidia:
         device = "cuda"
+    elif args.qy:
+        device = "cuda"
     elif args.metax:
         device = "cuda"
     elif args.moore:
@@ -146,7 +154,7 @@ if __name__ == "__main__":
         device = "cuda"
     else:
         print(
-            "Usage:  python test/models/qwen3_moe/moe_test.py [--cpu | --nvidia | --metax | --moore | --iluvatar] --model_path=<path/to/model_path>"
+            "Usage:  python test/models/qwen3_moe/moe_test.py [--cpu | --nvidia | --qy | --metax | --moore | --iluvatar] --model_path=<path/to/model_path>"
         )
         sys.exit(1)
 
