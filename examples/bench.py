@@ -138,6 +138,11 @@ def get_args():
         help="Run nvidia test",
     )
     parser.add_argument(
+        "--qy",
+        action="store_true",
+        help="Run qy test",
+    )
+    parser.add_argument(
         "--cambricon",
         action="store_true",
         help="Run cambricon test",
@@ -284,6 +289,8 @@ if __name__ == "__main__":
     if args.cpu:
         device_str = "cpu"
     elif args.nvidia:
+        device_str = "cuda"
+    elif args.qy:
         device_str = "cuda"
     elif args.cambricon:
         device_str = "mlu"

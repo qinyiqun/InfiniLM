@@ -334,7 +334,7 @@ class JiugeAWQForCausalLM:
 def test():
     if len(sys.argv) < 3:
         print(
-            "Usage: python jiuge_awq.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
+            "Usage: python jiuge_awq.py [--cpu | --nvidia | --qy | --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
         )
         sys.exit(1)
     model_path = sys.argv[2]
@@ -343,6 +343,8 @@ def test():
         device_type = DeviceType.DEVICE_TYPE_CPU
     elif sys.argv[1] == "--nvidia":
         device_type = DeviceType.DEVICE_TYPE_NVIDIA
+    elif sys.argv[1] == "--qy":
+        device_type = DeviceType.DEVICE_TYPE_QY
     elif sys.argv[1] == "--cambricon":
         device_type = DeviceType.DEVICE_TYPE_CAMBRICON
     elif sys.argv[1] == "--ascend":
@@ -355,7 +357,7 @@ def test():
         device_type = DeviceType.DEVICE_TYPE_ILUVATAR
     else:
         print(
-            "Usage: python main_jiuge_awq.py [--cpu | --nvidia| --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
+            "Usage: python main_jiuge_awq.py [--cpu | --nvidia| --qy | --cambricon | --ascend | --metax | --moore] <path/to/model_dir> [n_device]"
         )
         sys.exit(1)
 
