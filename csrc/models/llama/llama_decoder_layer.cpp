@@ -1,6 +1,7 @@
 #include "llama_decoder_layer.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/ops.hpp"
+#include <iostream>
 #include <optional>
 
 namespace infinilm::models::llama {
@@ -64,7 +65,6 @@ LlamaDecoderLayer::forward(infinicore::Tensor &hidden_states,
                            std::optional<infinicore::Tensor> slot_mapping) const {
     // 1. Attention layer normalization
     input_layernorm_->forward_inplace(hidden_states, residual);
-
     // 2. Self-attention
     hidden_states = self_attn_->forward(
         hidden_states, position_ids, kv_cache, past_sequence_lengths, total_sequence_lengths, input_offsets, cu_seqlens, block_tables, slot_mapping);

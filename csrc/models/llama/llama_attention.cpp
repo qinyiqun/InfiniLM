@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <iostream>
 #include <optional>
 #include <spdlog/spdlog.h>
 #include <stdexcept>
@@ -124,6 +125,16 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
                                           dtype, device, rank_info);
         INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
                                   dtype, device, tp_rank, tp_size, rank_info.comm);
+        break;
+    }
+    case infinicore::quantization::QuantScheme::GPTQ_W4A16: {
+
+        INFINILM_QKV_LINEAR_W4A16GPTQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
+                                           dtype, device, rank_info);
+
+        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
+                                  dtype, device, tp_rank, tp_size, rank_info.comm);
+
         break;
     }
     default:
@@ -342,10 +353,10 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
             auto q_for_fa = q_reshaped->view({seq_len, 1, num_attention_heads_, head_dim_});
             auto attn_out_4d = infinicore::op::mha_kvcache(
                 q_for_fa,
-                k_total->permute({0, 2, 1, 3}),  // [num_blocks, block_size, num_kv_heads, head_dim]
+                k_total->permute({0, 2, 1, 3}), // [num_blocks, block_size, num_kv_heads, head_dim]
                 v_total->permute({0, 2, 1, 3}),
-                total_sequence_lengths.value(),  // [seq_len] int32 (one entry per sequence)
-                block_tables.value(),            // [seq_len, max_num_blocks_per_seq] int32
+                total_sequence_lengths.value(), // [seq_len] int32 (one entry per sequence)
+                block_tables.value(),           // [seq_len, max_num_blocks_per_seq] int32
                 std::nullopt,
                 scaling_);
             attn_output = attn_out_4d->view({seq_len, num_attention_heads_, head_dim_});
@@ -361,7 +372,6 @@ infinicore::Tensor LlamaAttention::forward_paged_(const infinicore::Tensor &hidd
                 scaling_);
         }
     }
-    
 
     // 7. Project output
     attn_output
