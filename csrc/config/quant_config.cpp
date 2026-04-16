@@ -17,6 +17,8 @@ QuantConfig::get_quantization_method() const {
         return std::make_shared<infinicore::quantization::CompressedTensors>(quantization_config);
     } else if (quantization_config["quant_method"] == "awq") {
         return std::make_shared<infinicore::quantization::AWQ>(quantization_config);
+    } else if (quantization_config["quant_method"] == "gptq") {
+        return std::make_shared<infinicore::quantization::GPTQ_QY>(quantization_config);
     } else {
         return std::make_shared<infinicore::quantization::NoneQuantization>(quantization_config);
     }

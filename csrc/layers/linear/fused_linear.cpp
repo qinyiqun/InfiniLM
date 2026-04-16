@@ -264,6 +264,18 @@ infinicore::nn::Parameter QKVParallelLinear::get_v_bias() const {
         0, tp_rank_, tp_size_);
 }
 
+infinicore::nn::Parameter QKVParallelLinear::get_q_g_idx_gptq() const {
+    return infinicore::nn::Parameter(gidx_->narrow({{0, 0, in_features_ / tp_size_}}), 0, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter QKVParallelLinear::get_k_g_idx_gptq() const {
+    return infinicore::nn::Parameter(gidx_->narrow({{0, 0, in_features_ / tp_size_}}), 0, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter QKVParallelLinear::get_v_g_idx_gptq() const {
+    return infinicore::nn::Parameter(gidx_->narrow({{0, 0, in_features_ / tp_size_}}), 0, tp_rank_, tp_size_);
+}
+
 bool QKVParallelLinear::has_q_bias() const { return q_bias_; }
 bool QKVParallelLinear::has_k_bias() const { return k_bias_; }
 bool QKVParallelLinear::has_v_bias() const { return v_bias_; }
@@ -393,6 +405,14 @@ infinicore::nn::Parameter GateUpParallelLinear::get_gate_weight_zeros_awq() cons
 
 infinicore::nn::Parameter GateUpParallelLinear::get_up_weight_zeros_awq() const {
     return infinicore::nn::Parameter(weight_zeros_->narrow({{1, weight_zeros_->size(1) / 2, weight_zeros_->size(1) / 2}}), 1, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter GateUpParallelLinear::get_gate_g_idx_gptq() const {
+    return infinicore::nn::Parameter(gidx_->narrow({{0, 0, gidx_->size(0)}}), 0, tp_rank_, tp_size_);
+}
+
+infinicore::nn::Parameter GateUpParallelLinear::get_up_g_idx_gptq() const {
+    return infinicore::nn::Parameter(gidx_->narrow({{0, 0, gidx_->size(0)}}), 0, tp_rank_, tp_size_);
 }
 
 } // namespace infinilm::layers::linear
