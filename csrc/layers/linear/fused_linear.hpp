@@ -1,8 +1,8 @@
 #pragma once
+#include "../../engine/distributed/communication_group.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/quantization.hpp"
-
-#include "../../engine/distributed/communication_group.hpp"
+#include <iostream>
 
 namespace infinilm::layers::linear {
 class QKVParallelLinear : public infinicore::nn::ColumnParallelLinear {
@@ -84,6 +84,16 @@ public:
     bool has_q_bias() const;
     bool has_k_bias() const;
     bool has_v_bias() const;
+
+    void get_qkv_weight_info() {
+        std::cout << "weight: " << this->weight_->info() << std::endl;
+        weight_->debug();
+        std::cout << "weight_scale: " << this->weight_scale_->info() << std::endl;
+        weight_scale_->debug();
+        std::cout << "weight_zeros: " << this->weight_zeros_->info() << std::endl;
+        weight_zeros_->debug();
+        std::cout << "gidx: " << this->gidx_->info() << std::endl;
+    }
 
 private:
     static size_t calculate_kv_replicas(size_t num_k_head, size_t tp_size) {
@@ -281,15 +291,15 @@ private:
     auto gptq_ptr = std::static_pointer_cast<infinicore::quantization::GPTQ_QY>(name##_->get_quantization()); \
     int packing_num = gptq_ptr->get_packing_num();                                                            \
     this->register_parameter(std::string(q_name) + ".qweight", name##_->get_q_weight_awq(1));                 \
-    this->register_parameter(std::string(q_name) + ".qzeros", name##_->get_q_weight_zeros_awq(1));            \
+    this->register_parameter(std::string(q_name) + ".qzeros", name##_->get_q_weight_zeros_awq(8));            \
     this->register_parameter(std::string(q_name) + ".scales", name##_->get_q_weight_scale_awq(1));            \
     this->register_parameter(std::string(q_name) + ".g_idx", name##_->get_q_g_idx_gptq());                    \
     this->register_parameter(std::string(k_name) + ".qweight", name##_->get_k_weight_awq(1));                 \
-    this->register_parameter(std::string(k_name) + ".qzeros", name##_->get_k_weight_zeros_awq(1));            \
+    this->register_parameter(std::string(k_name) + ".qzeros", name##_->get_k_weight_zeros_awq(8));            \
     this->register_parameter(std::string(k_name) + ".scales", name##_->get_k_weight_scale_awq(1));            \
     this->register_parameter(std::string(k_name) + ".g_idx", name##_->get_k_g_idx_gptq());                    \
     this->register_parameter(std::string(v_name) + ".qweight", name##_->get_v_weight_awq(1));                 \
-    this->register_parameter(std::string(v_name) + ".qzeros", name##_->get_v_weight_zeros_awq(1));            \
+    this->register_parameter(std::string(v_name) + ".qzeros", name##_->get_v_weight_zeros_awq(8));            \
     this->register_parameter(std::string(v_name) + ".scales", name##_->get_v_weight_scale_awq(1));            \
     this->register_parameter(std::string(v_name) + ".g_idx", name##_->get_v_g_idx_gptq());                    \
     if (name##_->has_q_bias())                                                                                \
