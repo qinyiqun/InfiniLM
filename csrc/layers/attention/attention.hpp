@@ -50,4 +50,8 @@ protected:
     INFINICORE_NN_PARAMETER(kv_cache_k_scale);
     INFINICORE_NN_PARAMETER(kv_cache_v_scale);
 };
+void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
+                              const infinicore::Device &device,
+                              infinicore::nn::Parameter &kv_cache_k_scale,
+                              infinicore::nn::Parameter &kv_cache_v_scale);
 } // namespace infinilm::layers::attention

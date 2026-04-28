@@ -415,4 +415,120 @@ infinicore::nn::Parameter GateUpParallelLinear::get_up_g_idx_gptq() const {
     return infinicore::nn::Parameter(gidx_->narrow({{0, 0, gidx_->size(0)}}), 0, tp_rank_, tp_size_);
 }
 
+void QKVParallelLinear::register_parameters(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
+                                            const std::string &q_name,
+                                            const std::string &k_name,
+                                            const std::string &v_name) {
+    using namespace infinicore::quantization;
+    auto scheme = this->get_quantization()->get_quant_scheme();
+    switch (scheme) {
+    case QuantScheme::NONE: {
+        register_fn(q_name + ".weight", this->get_q_weight());
+        register_fn(k_name + ".weight", this->get_k_weight());
+        register_fn(v_name + ".weight", this->get_v_weight());
+        break;
+    }
+    case QuantScheme::COMPRESSED_TENSOR_W8A8I8: {
+        register_fn(q_name + ".weight", this->get_q_weight());
+        register_fn(q_name + ".weight_scale", this->get_q_weight_scale());
+        register_fn(k_name + ".weight", this->get_k_weight());
+        register_fn(k_name + ".weight_scale", this->get_k_weight_scale());
+        register_fn(v_name + ".weight", this->get_v_weight());
+        register_fn(v_name + ".weight_scale", this->get_v_weight_scale());
+        break;
+    }
+    case QuantScheme::AWQ_W4A16: {
+        auto awq = std::static_pointer_cast<AWQ>(this->get_quantization());
+        int packing_num = awq->get_packing_num();
+        register_fn(q_name + ".qweight", this->get_q_weight_awq(packing_num));
+        register_fn(q_name + ".qzeros", this->get_q_weight_zeros_awq(packing_num));
+        register_fn(q_name + ".scales", this->get_q_weight_scale_awq(1));
+        register_fn(k_name + ".qweight", this->get_k_weight_awq(packing_num));
+        register_fn(k_name + ".qzeros", this->get_k_weight_zeros_awq(packing_num));
+        register_fn(k_name + ".scales", this->get_k_weight_scale_awq(1));
+        register_fn(v_name + ".qweight", this->get_v_weight_awq(packing_num));
+        register_fn(v_name + ".qzeros", this->get_v_weight_zeros_awq(packing_num));
+        register_fn(v_name + ".scales", this->get_v_weight_scale_awq(1));
+        break;
+    }
+    case QuantScheme::GPTQ_W4A16:
+    case QuantScheme::GPTQ_W4A16_QY: {
+        register_fn(q_name + ".qweight", this->get_q_weight_awq(1));
+        register_fn(q_name + ".qzeros", this->get_q_weight_zeros_awq(8));
+        register_fn(q_name + ".scales", this->get_q_weight_scale_awq(1));
+        register_fn(q_name + ".g_idx", this->get_q_g_idx_gptq());
+        register_fn(k_name + ".qweight", this->get_k_weight_awq(1));
+        register_fn(k_name + ".qzeros", this->get_k_weight_zeros_awq(8));
+        register_fn(k_name + ".scales", this->get_k_weight_scale_awq(1));
+        register_fn(k_name + ".g_idx", this->get_k_g_idx_gptq());
+        register_fn(v_name + ".qweight", this->get_v_weight_awq(1));
+        register_fn(v_name + ".qzeros", this->get_v_weight_zeros_awq(8));
+        register_fn(v_name + ".scales", this->get_v_weight_scale_awq(1));
+        register_fn(v_name + ".g_idx", this->get_v_g_idx_gptq());
+        break;
+    }
+    default:
+        throw std::runtime_error("QKVParallelLinear: unsupported quantization scheme");
+    }
+    if (this->has_q_bias()) {
+        register_fn(q_name + ".bias", this->get_q_bias());
+    }
+    if (this->has_k_bias()) {
+        register_fn(k_name + ".bias", this->get_k_bias());
+    }
+    if (this->has_v_bias()) {
+        register_fn(v_name + ".bias", this->get_v_bias());
+    }
+}
+
+void GateUpParallelLinear::register_parameters(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
+                                               const std::string &gate_name,
+                                               const std::string &up_name) {
+    using namespace infinicore::quantization;
+    auto scheme = this->get_quantization()->get_quant_scheme();
+    switch (scheme) {
+    case QuantScheme::NONE: {
+        register_fn(gate_name + ".weight", this->get_gate_weight());
+        register_fn(up_name + ".weight", this->get_up_weight());
+        break;
+    }
+    case QuantScheme::COMPRESSED_TENSOR_W8A8I8: {
+        register_fn(gate_name + ".weight", this->get_gate_weight());
+        register_fn(gate_name + ".weight_scale", this->get_gate_weight_scale());
+        register_fn(up_name + ".weight", this->get_up_weight());
+        register_fn(up_name + ".weight_scale", this->get_up_weight_scale());
+        break;
+    }
+    case QuantScheme::AWQ_W4A16: {
+        register_fn(gate_name + ".qweight", this->get_gate_weight_awq());
+        register_fn(gate_name + ".qzeros", this->get_gate_weight_zeros_awq());
+        register_fn(gate_name + ".scales", this->get_gate_weight_scale_awq());
+        register_fn(up_name + ".qweight", this->get_up_weight_awq());
+        register_fn(up_name + ".qzeros", this->get_up_weight_zeros_awq());
+        register_fn(up_name + ".scales", this->get_up_weight_scale_awq());
+        break;
+    }
+    case QuantScheme::GPTQ_W4A16:
+    case QuantScheme::GPTQ_W4A16_QY: {
+        register_fn(gate_name + ".qweight", this->get_gate_weight_awq());
+        register_fn(gate_name + ".qzeros", this->get_gate_weight_zeros_awq());
+        register_fn(gate_name + ".scales", this->get_gate_weight_scale_awq());
+        register_fn(gate_name + ".g_idx", this->get_gate_g_idx_gptq());
+        register_fn(up_name + ".qweight", this->get_up_weight_awq());
+        register_fn(up_name + ".qzeros", this->get_up_weight_zeros_awq());
+        register_fn(up_name + ".scales", this->get_up_weight_scale_awq());
+        register_fn(up_name + ".g_idx", this->get_up_g_idx_gptq());
+        break;
+    }
+    default:
+        throw std::runtime_error("GateUpParallelLinear: unsupported quantization scheme");
+    }
+    if (this->has_gate_bias()) {
+        register_fn(gate_name + ".bias", this->get_gate_bias());
+    }
+    if (this->has_up_bias()) {
+        register_fn(up_name + ".bias", this->get_up_bias());
+    }
+}
+
 } // namespace infinilm::layers::linear

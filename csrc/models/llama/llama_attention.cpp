@@ -1,5 +1,6 @@
 #include "llama_attention.hpp"
 
+#include "../../layers/attention/attention.hpp"
 #include "../../utils.hpp"
 #include "infinicore/nn/linear.hpp"
 #include "infinicore/nn/rope.hpp"
@@ -66,8 +67,10 @@ LlamaAttention::LlamaAttention(const LlamaConfig &config,
     scaling_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
 
     // Initialize projection layers
-    INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, config.num_attention_heads, config.num_key_value_heads, use_bias_,
-                             dtype, device, rank_info);
+    qkv_proj_ = std::make_shared<layers::linear::QKVParallelLinear>(hidden_size_, head_dim_, num_attention_heads, num_key_value_heads,
+                                                                     use_bias_, dtype, device, rank_info);
+    qkv_proj_->register_parameters([this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); },
+                                    "q_proj", "k_proj", "v_proj");
     // Output projection uses attention_output_bias (can be different from qkv)
     INFINICORE_NN_MODULE_INIT(o_proj, num_attention_heads * head_dim_, hidden_size_, use_output_bias_,
                               dtype, device, tp_rank, tp_size, rank_info.comm);
@@ -112,54 +115,20 @@ LlamaAttention::LlamaAttention(std::shared_ptr<infinilm::config::ModelConfig> mo
     }
     scaling_ = 1.0f / std::sqrt(static_cast<float>(head_dim_));
 
-    auto quant_scheme = this->model_config_->get_quant_scheme();
-    switch (quant_scheme) {
-    case infinicore::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
-        INFINILM_QKV_LINEAR_W8A8_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
-                                      dtype, device, rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
-                                  dtype, device, tp_rank, tp_size, rank_info.comm);
-        break;
-
-    case infinicore::quantization::QuantScheme::AWQ_W4A16: {
-        INFINILM_QKV_LINEAR_W4A16AWQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
-                                          dtype, device, rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
-                                  dtype, device, tp_rank, tp_size, rank_info.comm);
-        break;
-    }
-    case infinicore::quantization::QuantScheme::GPTQ_W4A16_QY: {
-
-        INFINILM_QKV_LINEAR_W4A16GPTQ_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
-                                           dtype, device, rank_info);
-
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
-                                  dtype, device, tp_rank, tp_size, rank_info.comm);
-
-        break;
-    }
-    default:
-        INFINILM_QKV_LINEAR_INIT(qkv_proj, "q_proj", "k_proj", "v_proj", hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"), this->model_config_->get_quantization_method(), use_bias_,
-                                 dtype, device, rank_info);
-        INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, this->model_config_->get_quantization_method(), use_output_bias_,
-                                  dtype, device, tp_rank, tp_size, rank_info.comm);
-        break;
-    }
+    auto quantization_method = this->model_config_->get_quantization_method();
+    qkv_proj_ = std::make_shared<layers::linear::QKVParallelLinear>(hidden_size_, head_dim_, model_config_->get<size_t>("num_attention_heads"), model_config_->get<size_t>("num_key_value_heads"),
+                                                                     quantization_method, use_bias_, dtype, device, rank_info);
+    qkv_proj_->register_parameters([this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); },
+                                    "q_proj", "k_proj", "v_proj");
+    INFINICORE_NN_MODULE_INIT(o_proj, model_config_->get<size_t>("num_attention_heads") * head_dim_, hidden_size_, quantization_method, use_output_bias_,
+                              dtype, device, tp_rank, tp_size, rank_info.comm);
     if (model_config_->get<std::string>("model_type") == "qwen3") {
         INFINICORE_NN_MODULE_INIT(q_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
         INFINICORE_NN_MODULE_INIT(k_norm, head_dim_, model_config_->get<double>("rms_norm_eps"), dtype, device);
     }
 
-    switch (this->model_config_->get_kv_quant_scheme()) {
-    case (infinicore::quantization::KVQuantAlgo::INT8): {
-        INFINICORE_NN_PARAMETER_INIT(kv_cache_k_scale, ({1}, infinicore::DataType::F32, device, 0, 0, 1));
-        INFINICORE_NN_PARAMETER_INIT(kv_cache_v_scale, ({1}, infinicore::DataType::F32, device, 0, 0, 1));
-        break;
-    }
-    default: {
-        break;
-    }
-    }
+    infinilm::layers::attention::init_kv_cache_quant_params([this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); },
+                              device, kv_cache_k_scale_, kv_cache_v_scale_);
 }
 
 infinicore::Tensor LlamaAttention::forward_(const infinicore::Tensor &hidden_states,

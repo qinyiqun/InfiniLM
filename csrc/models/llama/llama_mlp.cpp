@@ -26,9 +26,10 @@ LlamaMLP::LlamaMLP(const LlamaConfig &config,
     int tp_rank = rank_info.tp_rank;
     int tp_size = rank_info.tp_size;
 
-    // Initialize projection layers
-    INFINILM_GATE_UP_LINEAR_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, use_bias_,
-                                 dtype, device, rank_info_);
+    gate_up_proj_ = std::make_shared<layers::linear::GateUpParallelLinear>(hidden_size_, intermediate_size_, use_bias_,
+                                                                          dtype, device, rank_info_);
+    gate_up_proj_->register_parameters([this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); },
+                                       "gate_proj", "up_proj");
     INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
                               dtype, device, tp_rank, tp_size, rank_info.comm);
 }
@@ -46,33 +47,13 @@ LlamaMLP::LlamaMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
     int tp_size = rank_info.tp_size;
 
     // Initialize projection layers
-    auto quant_scheme = this->model_config_->get_quant_scheme();
-    switch (quant_scheme) {
-    case infinicore::quantization::QuantScheme::COMPRESSED_TENSOR_W8A8I8:
-        INFINILM_GATE_UP_LINEAR_W8A8_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, this->model_config_->get_quantization_method(), use_bias_,
-                                          dtype, device, rank_info_);
-        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, this->model_config_->get_quantization_method(), use_bias_,
-                                  dtype, device, tp_rank, tp_size, rank_info.comm);
-        break;
-    case infinicore::quantization::QuantScheme::AWQ_W4A16:
-        INFINILM_GATE_UP_LINEAR_W4A16AWQ_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, this->model_config_->get_quantization_method(), use_bias_,
-                                              dtype, device, rank_info_);
-        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, this->model_config_->get_quantization_method(), use_bias_,
-                                  dtype, device, tp_rank, tp_size, rank_info.comm);
-        break;
-    case infinicore::quantization::QuantScheme::GPTQ_W4A16_QY:
-        INFINILM_GATE_UP_LINEAR_W4A16GPTQ_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, this->model_config_->get_quantization_method(), use_bias_,
-                                               dtype, device, rank_info_);
-        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, this->model_config_->get_quantization_method(), use_bias_,
-                                  dtype, device, tp_rank, tp_size, rank_info.comm);
-        break;
-    default:
-        INFINILM_GATE_UP_LINEAR_INIT(gate_up_proj, "gate_proj", "up_proj", hidden_size_, intermediate_size_, this->model_config_->get_quantization_method(), use_bias_,
-                                     dtype, device, rank_info_);
-        INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, this->model_config_->get_quantization_method(), use_bias_,
-                                  dtype, device, tp_rank, tp_size, rank_info.comm);
-        break;
-    }
+    auto quantization_method = this->model_config_->get_quantization_method();
+    gate_up_proj_ = std::make_shared<layers::linear::GateUpParallelLinear>(hidden_size_, intermediate_size_, quantization_method, use_bias_,
+                                                                          dtype, device, rank_info_);
+    gate_up_proj_->register_parameters([this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); },
+                                       "gate_proj", "up_proj");
+    INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, quantization_method, use_bias_,
+                              dtype, device, tp_rank, tp_size, rank_info.comm);
 }
 
 infinicore::Tensor LlamaMLP::forward(const infinicore::Tensor &hidden_states) const {
