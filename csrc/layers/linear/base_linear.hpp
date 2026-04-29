@@ -12,11 +12,13 @@ using namespace infinicore::nn;
 
 class BaseLinear : public infinicore::nn::Module {
 public:
-    BaseLinear(size_t in_features, size_t out_features, bool bias = true,
-               const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device());
-
-    BaseLinear(size_t in_features, size_t out_features, std::shared_ptr<infinilm::quantization::BaseQuantization> quantization, bool bias = true,
-               const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device());
+    BaseLinear(size_t in_features, size_t out_features,
+               std::shared_ptr<infinilm::quantization::BaseQuantization> quantization = std::make_shared<infinilm::quantization::NoneQuantization>(nullptr),
+               bool bias = true,
+               const infinicore::DataType &dtype = infinicore::DataType::F32,
+               const infinicore::Device &device = infinicore::Device(),
+               int split_dim = -1, int tp_rank = 0, int tp_size = 1,
+               int tp_num_heads = -1);
 
     // Forward pass: output = input @ weight.T + bias
     infinicore::Tensor forward(infinicore::Tensor &input) const;
@@ -30,32 +32,36 @@ public:
     bool has_bias() const { return has_bias_; }
     infinicore::DataType dtype() const { return dtype_; }
 
-    // Accessors for parameters
-    infinicore::Tensor weight() const { return weight_; }
-    infinicore::Tensor bias() const { return bias_; }
-    infinicore::Tensor weight_scale() const { return weight_scale_; }
-    infinicore::Tensor weight_zeros() const { return weight_zeros_; }
-    infinicore::Tensor gidx() const { return gidx_; }
+    // Accessors for parameters (backward compatible)
+    infinicore::Tensor weight() const;
+    infinicore::Tensor bias() const;
+    infinicore::Tensor weight_scale() const;
+    infinicore::Tensor weight_zeros() const;
+    infinicore::Tensor gidx() const;
+
+    // Get parameter by name
+    infinicore::Tensor get_param(const std::string &name) const;
 
     std::shared_ptr<infinilm::quantization::BaseQuantization> get_quantization() const { return quantization_; }
     void process_weights_after_loading();
 
+    // Split fused linear parameters into named sub-parameters
+    std::vector<infinilm::quantization::SplitParam> split_params(
+        const std::vector<infinilm::quantization::SplitInfo> &splits,
+        int tp_rank, int tp_size, int tp_num_heads) const;
+
+    // Allow subclasses to access the raw parameters map
+    const infinicore::nn::Parameter &get_parameter_ref(const std::string &name) const;
+
 protected:
-    INFINICORE_NN_PARAMETER(weight);
-    INFINICORE_NN_PARAMETER(bias);
-
-    INFINICORE_NN_PARAMETER(weight_scale);
-    INFINICORE_NN_PARAMETER(weight_zeros);
-
-    INFINICORE_NN_PARAMETER(gidx);
-
     infinicore::Tensor compute_linear(infinicore::Tensor &input) const;
 
     size_t in_features_;
     size_t out_features_;
     bool has_bias_;
     infinicore::DataType dtype_;
-    std::shared_ptr<infinilm::quantization::BaseQuantization> quantization_ = std::make_shared<infinilm::quantization::NoneQuantization>(nullptr);
+    int split_dim_ = -1;
+    std::shared_ptr<infinilm::quantization::BaseQuantization> quantization_;
 };
 
 } // namespace infinilm::nn

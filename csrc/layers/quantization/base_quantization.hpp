@@ -1,8 +1,39 @@
 #pragma once
+#include "infinicore/nn/module.hpp"
+#include "infinicore/tensor.hpp"
 #include "nlohmann/json.hpp"
 #include "quantization_scheme.hpp"
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace infinilm::quantization {
+
+struct ParamDescriptor {
+    std::string name;
+    std::vector<size_t> shape;
+    infinicore::DataType dtype;
+    int split_dim = -1;
+    int tp_rank = 0;
+    int tp_size = 1;
+    int tp_num_heads = -1;
+};
+
+using ParamsMap = std::unordered_map<std::string, infinicore::Tensor>;
+
+// Describes one shard of a fused linear (e.g., Q, K, V or gate, up)
+struct SplitInfo {
+    std::string prefix;    // "q_proj", "k_proj", "v_proj" or "gate_proj", "up_proj"
+    size_t start;          // start offset along narrow_dim
+    size_t size;           // size of this shard along narrow_dim
+};
+
+// A named parameter produced by splitting a fused linear
+struct SplitParam {
+    std::string full_name; // "q_proj.weight", "gate_proj.qweight", etc.
+    infinicore::nn::Parameter param;
+};
+
 class BaseQuantization {
 public:
     explicit BaseQuantization(const nlohmann::json &quant_config) : quant_config_(quant_config) {};
@@ -10,7 +41,41 @@ public:
 
     const nlohmann::json &get_config() const { return quant_config_; }
 
-    virtual infinilm::quantization::QuantScheme get_quant_scheme() const = 0;
+    virtual QuantScheme get_quant_scheme() const = 0;
+
+    // Return the list of parameters this quantization scheme needs
+    virtual std::vector<ParamDescriptor> get_param_layout(
+        size_t in_features, size_t out_features,
+        int split_dim, int tp_rank, int tp_size,
+        int tp_num_heads,
+        const infinicore::DataType &dtype,
+        bool bias) const = 0;
+
+    // Forward pass using the registered parameters
+    virtual infinicore::Tensor forward(
+        const ParamsMap &params,
+        const infinicore::Tensor &input,
+        bool has_bias) const = 0;
+
+    // Split fused linear parameters into named sub-parameters (for QKV/GateUp)
+    // params: the fused linear's registered parameters (by name)
+    // splits: description of each shard
+    // narrow_dim: 0=narrow dim0, 1=narrow dim1 (for weight-like params)
+    // Returns a list of (full_name, Parameter) pairs
+    virtual std::vector<SplitParam> split_params(
+        const std::unordered_map<std::string, infinicore::nn::Parameter> &params,
+        const std::vector<SplitInfo> &splits,
+        int narrow_dim,
+        int tp_rank, int tp_size, int tp_num_heads) const = 0;
+
+    // Post-loading weight processing (e.g., GPTQ->GPTQ_QY conversion)
+    virtual void process_weights_after_loading(
+        ParamsMap &params,
+        const infinicore::Device &device) const {
+        (void)params;
+        (void)device;
+    }
+
     template <typename T>
     T get(const std::string &key) const {
         if (!quant_config_.contains(key)) {
@@ -38,4 +103,5 @@ public:
 protected:
     nlohmann::json quant_config_;
 };
+
 } // namespace infinilm::quantization

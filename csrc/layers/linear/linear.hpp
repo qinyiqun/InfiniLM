@@ -11,29 +11,40 @@ namespace infinilm::nn {
 
 class Linear : public BaseLinear {
 public:
-    Linear(size_t in_features, size_t out_features, bool bias = true,
-           const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device());
+    // Without quantization (backward compat)
+    Linear(size_t in_features, size_t out_features, bool bias,
+           const infinicore::DataType &dtype = infinicore::DataType::F32,
+           const infinicore::Device &device = infinicore::Device());
 
-    Linear(size_t in_features, size_t out_features, std::shared_ptr<infinilm::quantization::BaseQuantization> quantization, bool bias = true,
-           const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device());
+    // With quantization
+    Linear(size_t in_features, size_t out_features,
+           std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
+           bool bias = true,
+           const infinicore::DataType &dtype = infinicore::DataType::F32,
+           const infinicore::Device &device = infinicore::Device());
 
     infinicore::Tensor forward(infinicore::Tensor &input) const;
-
     std::string extra_repr() const;
 };
 
 class ColumnParallelLinear : public BaseLinear {
 public:
-    ColumnParallelLinear(size_t in_features, size_t out_features, bool bias = true,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
-                         infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1);
+    // Without quantization (backward compat)
+    ColumnParallelLinear(size_t in_features, size_t out_features, bool bias,
+                         const infinicore::DataType &dtype, const infinicore::Device &device,
+                         infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
+                         int tp_num_heads = -1);
 
-    ColumnParallelLinear(size_t in_features, size_t out_features, std::shared_ptr<infinilm::quantization::BaseQuantization> quantization, bool bias = true,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
-                         infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1);
+    // With quantization
+    ColumnParallelLinear(size_t in_features, size_t out_features,
+                         std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
+                         bool bias = true,
+                         const infinicore::DataType &dtype = infinicore::DataType::F32,
+                         const infinicore::Device &device = infinicore::Device(),
+                         infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
+                         int tp_num_heads = -1);
 
     infinicore::Tensor forward(infinicore::Tensor &input) const;
-
     std::string extra_repr() const;
 
 protected:
@@ -43,16 +54,22 @@ protected:
 
 class RowParallelLinear : public BaseLinear {
 public:
-    RowParallelLinear(size_t in_features, size_t out_features, bool bias = true,
-                      const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
-                      infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1, infinicclComm_t communicator = nullptr);
+    // Without quantization (backward compat)
+    RowParallelLinear(size_t in_features, size_t out_features, bool bias,
+                      const infinicore::DataType &dtype, const infinicore::Device &device,
+                      infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
+                      infinicclComm_t communicator = nullptr);
 
-    RowParallelLinear(size_t in_features, size_t out_features, std::shared_ptr<infinilm::quantization::BaseQuantization> quantization, bool bias = true,
-                      const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
-                      infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1, infinicclComm_t communicator = nullptr);
+    // With quantization
+    RowParallelLinear(size_t in_features, size_t out_features,
+                      std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
+                      bool bias = true,
+                      const infinicore::DataType &dtype = infinicore::DataType::F32,
+                      const infinicore::Device &device = infinicore::Device(),
+                      infinicore::Size tp_rank = 0, infinicore::Size tp_size = 1,
+                      infinicclComm_t communicator = nullptr);
 
     infinicore::Tensor forward(infinicore::Tensor &input) const;
-
     std::string extra_repr() const;
 
 protected:

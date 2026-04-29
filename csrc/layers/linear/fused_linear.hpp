@@ -15,7 +15,6 @@ public:
                                const infinicore::Device &device = infinicore::Device(),
                                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
-    // A more common case where all heads have the same dimension
     explicit QKVParallelLinear(size_t hidden_size,
                                size_t head_dim,
                                size_t num_q_head, size_t num_kv_head,
@@ -33,7 +32,6 @@ public:
                                const infinicore::Device &device = infinicore::Device(),
                                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
-    // A more common case where all heads have the same dimension
     explicit QKVParallelLinear(size_t hidden_size,
                                size_t head_dim,
                                size_t num_q_head, size_t num_kv_head,
@@ -45,41 +43,6 @@ public:
 
     std::tuple<infinicore::Tensor, infinicore::Tensor, infinicore::Tensor>
     forward_split(infinicore::Tensor &input);
-
-    infinicore::nn::Parameter get_q_weight() const;
-    infinicore::nn::Parameter get_k_weight() const;
-    infinicore::nn::Parameter get_v_weight() const;
-
-    infinicore::nn::Parameter get_q_weight_scale() const;
-    infinicore::nn::Parameter get_k_weight_scale() const;
-    infinicore::nn::Parameter get_v_weight_scale() const;
-
-    infinicore::nn::Parameter get_q_weight_zeros() const;
-    infinicore::nn::Parameter get_k_weight_zeros() const;
-    infinicore::nn::Parameter get_v_weight_zeros() const;
-
-    // For computing the packing factor in awq quantization:
-    // Returns the number of low-bit elements packed into a single high-bit container element.
-    // For example: int4 → int32 yields a packing factor of 8 (32 bits / 4 bits = 8 int4 values per int32).
-    infinicore::nn::Parameter get_q_weight_awq(int scaling_factor) const;
-    infinicore::nn::Parameter get_k_weight_awq(int scaling_factor) const;
-    infinicore::nn::Parameter get_v_weight_awq(int scaling_factor) const;
-
-    infinicore::nn::Parameter get_q_weight_scale_awq(int scaling_factor) const;
-    infinicore::nn::Parameter get_k_weight_scale_awq(int scaling_factor) const;
-    infinicore::nn::Parameter get_v_weight_scale_awq(int scaling_factor) const;
-
-    infinicore::nn::Parameter get_q_weight_zeros_awq(int scaling_factor) const;
-    infinicore::nn::Parameter get_k_weight_zeros_awq(int scaling_factor) const;
-    infinicore::nn::Parameter get_v_weight_zeros_awq(int scaling_factor) const;
-
-    infinicore::nn::Parameter get_q_bias() const;
-    infinicore::nn::Parameter get_k_bias() const;
-    infinicore::nn::Parameter get_v_bias() const;
-
-    infinicore::nn::Parameter get_q_g_idx_gptq() const;
-    infinicore::nn::Parameter get_k_g_idx_gptq() const;
-    infinicore::nn::Parameter get_v_g_idx_gptq() const;
 
     bool has_q_bias() const;
     bool has_k_bias() const;
@@ -116,27 +79,15 @@ private:
     bool q_bias_;
     bool k_bias_;
     bool v_bias_;
-    size_t q_out_size_; // num_q_head * q_dim / tp_size
-    size_t k_out_size_; // num_k_head * k_dim / tp_size
-    size_t v_out_size_; // num_v_head * v_dim / tp_size
+    size_t q_out_size_;
+    size_t k_out_size_;
+    size_t v_out_size_;
 
     size_t num_kv_head_replicas_ = 1;
 };
 
 class GateUpParallelLinear : public infinilm::nn::ColumnParallelLinear {
 public:
-    /**
-     * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
-     *
-     * ⚠️ DEVELOPMENT POLICY:
-     *   - NO new development or feature additions permitted on this interface
-     *   - Only critical bug fixes (security/stability) allowed until removal
-     *   - All new code MUST migrate to the polymorphic overload below
-     *
-     * Replacement: Use the polymorphic overload of this same function name with updated signature
-     * Reason: Legacy signature lacks support for dynamic quantization modes.
-     * Removal target: v0.2.0 (Q2 2026)
-     */
     GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool bias = false,
                          const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
@@ -158,40 +109,7 @@ public:
 
     std::tuple<infinicore::Tensor, infinicore::Tensor> forward_split(infinicore::Tensor &input);
 
-    infinicore::nn::Parameter get_gate_weight() const;
-
-    infinicore::nn::Parameter get_gate_weight_scale() const;
-
-    infinicore::nn::Parameter get_gate_weight_zeros() const;
-
-    infinicore::nn::Parameter get_gate_bias() const;
-
-    infinicore::nn::Parameter get_up_weight() const;
-
-    infinicore::nn::Parameter get_up_weight_scale() const;
-
-    infinicore::nn::Parameter get_up_weight_zeros() const;
-
-    infinicore::nn::Parameter get_up_bias() const;
-
-    infinicore::nn::Parameter get_gate_weight_awq() const;
-
-    infinicore::nn::Parameter get_up_weight_awq() const;
-
-    infinicore::nn::Parameter get_up_weight_scale_awq() const;
-
-    infinicore::nn::Parameter get_up_weight_zeros_awq() const;
-
-    infinicore::nn::Parameter get_gate_weight_scale_awq() const;
-
-    infinicore::nn::Parameter get_gate_weight_zeros_awq() const;
-
-    infinicore::nn::Parameter get_gate_g_idx_gptq() const;
-
-    infinicore::nn::Parameter get_up_g_idx_gptq() const;
-
     bool has_gate_bias() const;
-
     bool has_up_bias() const;
 
     void register_parameters(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
