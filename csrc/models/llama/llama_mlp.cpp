@@ -3,36 +3,6 @@
 #include "infinicore/ops.hpp"
 
 namespace infinilm::models::llama {
-/**
- * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
- *
- * ⚠️ DEVELOPMENT POLICY:
- *   - NO new development or feature additions permitted on this interface
- *   - Only critical bug fixes (security/stability) allowed until removal
- *   - All new code MUST migrate to the polymorphic overload below
- *
- * Replacement: Use the polymorphic overload of this same function name with updated signature
- * Reason: Legacy signature lacks support for dynamic quantization modes.
- * Removal target: v0.2.0 (Q2 2026)
- */
-LlamaMLP::LlamaMLP(const LlamaConfig &config,
-                   const infinicore::Device &device,
-                   engine::distributed::RankInfo rank_info)
-    : hidden_size_(config.hidden_size),
-      intermediate_size_(config.intermediate_size),
-      use_bias_(config.mlp_bias), rank_info_(rank_info) {
-    const auto &dtype{config.dtype};
-
-    int tp_rank = rank_info.tp_rank;
-    int tp_size = rank_info.tp_size;
-
-    gate_up_proj_ = std::make_shared<layers::linear::GateUpParallelLinear>(hidden_size_, intermediate_size_, use_bias_,
-                                                                          dtype, device, rank_info_);
-    gate_up_proj_->register_parameters([this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); },
-                                       "gate_proj", "up_proj");
-    INFINICORE_NN_MODULE_INIT(down_proj, intermediate_size_, hidden_size_, use_bias_,
-                              dtype, device, tp_rank, tp_size, rank_info.comm);
-}
 
 LlamaMLP::LlamaMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
                    const infinicore::Device &device,

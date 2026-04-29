@@ -11,22 +11,6 @@ public:
                                size_t q_dim, size_t k_dim, size_t v_dim,
                                size_t num_q_head, size_t num_k_head, size_t num_v_head,
                                bool q_bias, bool k_bias, bool v_bias,
-                               const infinicore::DataType &dtype = infinicore::DataType::F32,
-                               const infinicore::Device &device = infinicore::Device(),
-                               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
-
-    explicit QKVParallelLinear(size_t hidden_size,
-                               size_t head_dim,
-                               size_t num_q_head, size_t num_kv_head,
-                               bool bias = false,
-                               const infinicore::DataType &dtype = infinicore::DataType::F32,
-                               const infinicore::Device &device = infinicore::Device(),
-                               engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
-
-    explicit QKVParallelLinear(size_t hidden_size,
-                               size_t q_dim, size_t k_dim, size_t v_dim,
-                               size_t num_q_head, size_t num_k_head, size_t num_v_head,
-                               bool q_bias, bool k_bias, bool v_bias,
                                std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                                const infinicore::DataType &dtype = infinicore::DataType::F32,
                                const infinicore::Device &device = infinicore::Device(),
@@ -88,14 +72,6 @@ private:
 
 class GateUpParallelLinear : public infinilm::nn::ColumnParallelLinear {
 public:
-    GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool bias = false,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
-                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
-
-    GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
-                         const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
-                         engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
-
     GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                          bool bias = false,
                          const infinicore::DataType &dtype = infinicore::DataType::F32,
