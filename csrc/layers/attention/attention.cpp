@@ -28,9 +28,9 @@ Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config
 
     auto quantization_method = model_config->get_quantization_method();
     qkv_proj_ = std::make_shared<layers::linear::QKVParallelLinear>(hidden_size_, head_dim_, total_num_heads, total_num_kv_heads,
-                                                                     quantization_method, use_bias, dtype, device, rank_info);
+                                                                    quantization_method, use_bias, dtype, device, rank_info);
     qkv_proj_->register_parameters([this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); },
-                                    "q_proj", "k_proj", "v_proj");
+                                   "q_proj", "k_proj", "v_proj");
     INFINICORE_NN_MODULE_INIT(o_proj, total_num_heads * head_dim_, hidden_size_, quantization_method,
                               use_output_bias, dtype, device, tp_rank, tp_size, rank_info.comm);
 
@@ -41,7 +41,7 @@ Attention::Attention(std::shared_ptr<infinilm::config::ModelConfig> model_config
                                              kv_cache_k_scale_, kv_cache_v_scale_, attention_backend_);
 
     init_kv_cache_quant_params([this](const std::string &n, infinicore::nn::Parameter p) { this->register_parameter(n, std::move(p)); },
-                              device, kv_cache_k_scale_, kv_cache_v_scale_);
+                               device, kv_cache_k_scale_, kv_cache_v_scale_);
 }
 
 infinicore::Tensor Attention::forward(const infinicore::Tensor &positions,
@@ -137,9 +137,9 @@ infinicore::Tensor Attention::forward_paged_(const infinicore::Tensor &position_
 }
 
 void init_kv_cache_quant_params(std::function<void(const std::string &, infinicore::nn::Parameter)> register_fn,
-                              const infinicore::Device &device,
-                              infinicore::nn::Parameter &kv_cache_k_scale,
-                              infinicore::nn::Parameter &kv_cache_v_scale) {
+                                const infinicore::Device &device,
+                                infinicore::nn::Parameter &kv_cache_k_scale,
+                                infinicore::nn::Parameter &kv_cache_v_scale) {
     auto kv_quant_scheme = infinilm::global_state::get_infinilm_config().model_config->get_kv_quant_scheme();
     switch (kv_quant_scheme) {
     case infinilm::quantization::KVQuantAlgo::NONE:
