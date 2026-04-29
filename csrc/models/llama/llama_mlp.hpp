@@ -5,7 +5,7 @@
 
 #include "../../config/model_config.hpp"
 #include "infinicore/device.hpp"
-#include "infinicore/nn/linear.hpp"
+#include "../../layers/linear/linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
 #include "llama_config.hpp"
@@ -68,7 +68,7 @@ public:
 
 protected:
     INFINICORE_NN_MODULE(layers::linear::GateUpParallelLinear, gate_up_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, down_proj);
+    INFINICORE_NN_MODULE(infinilm::nn::RowParallelLinear, down_proj);
 
     engine::distributed::RankInfo rank_info_;
     size_t hidden_size_;

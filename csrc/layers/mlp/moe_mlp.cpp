@@ -19,7 +19,7 @@ MoeMLP::MoeMLP(std::shared_ptr<infinilm::config::ModelConfig> model_config,
     auto quant_scheme = model_config->get_quant_scheme();
     auto quantization_method = model_config->get_quantization_method();
     switch (quant_scheme) {
-    case infinicore::quantization::QuantScheme::NONE: {
+    case infinilm::quantization::QuantScheme::NONE: {
         INFINICORE_NN_MODULE_INIT(gate_proj, hidden_size_, moe_intermediate_size_, false,
                                   dtype, device, tp_rank, tp_size);
         INFINICORE_NN_MODULE_INIT(up_proj, hidden_size_, moe_intermediate_size_, false,

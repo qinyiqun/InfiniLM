@@ -1,11 +1,11 @@
 #pragma once
 #include "../../engine/distributed/communication_group.hpp"
-#include "infinicore/nn/linear.hpp"
-#include "infinicore/quantization.hpp"
+#include "linear.hpp"
+#include "../quantization/quantization.hpp"
 #include <functional>
 
 namespace infinilm::layers::linear {
-class QKVParallelLinear : public infinicore::nn::ColumnParallelLinear {
+class QKVParallelLinear : public infinilm::nn::ColumnParallelLinear {
 public:
     explicit QKVParallelLinear(size_t hidden_size,
                                size_t q_dim, size_t k_dim, size_t v_dim,
@@ -28,7 +28,7 @@ public:
                                size_t q_dim, size_t k_dim, size_t v_dim,
                                size_t num_q_head, size_t num_k_head, size_t num_v_head,
                                bool q_bias, bool k_bias, bool v_bias,
-                               std::shared_ptr<infinicore::quantization::BaseQuantization> quantization,
+                               std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                                const infinicore::DataType &dtype = infinicore::DataType::F32,
                                const infinicore::Device &device = infinicore::Device(),
                                engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
@@ -37,7 +37,7 @@ public:
     explicit QKVParallelLinear(size_t hidden_size,
                                size_t head_dim,
                                size_t num_q_head, size_t num_kv_head,
-                               std::shared_ptr<infinicore::quantization::BaseQuantization> quantization,
+                               std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                                bool bias = false,
                                const infinicore::DataType &dtype = infinicore::DataType::F32,
                                const infinicore::Device &device = infinicore::Device(),
@@ -123,7 +123,7 @@ private:
     size_t num_kv_head_replicas_ = 1;
 };
 
-class GateUpParallelLinear : public infinicore::nn::ColumnParallelLinear {
+class GateUpParallelLinear : public infinilm::nn::ColumnParallelLinear {
 public:
     /**
      * @deprecated This function is deprecated and will be REMOVED in the next major release (v0.2.0).
@@ -145,14 +145,14 @@ public:
                          const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
-    GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, std::shared_ptr<infinicore::quantization::BaseQuantization> quantization,
+    GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                          bool bias = false,
                          const infinicore::DataType &dtype = infinicore::DataType::F32,
                          const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 
     GateUpParallelLinear(size_t hidden_size, size_t intermediate_size, bool gate_bias, bool up_bias,
-                         std::shared_ptr<infinicore::quantization::BaseQuantization> quantization,
+                         std::shared_ptr<infinilm::quantization::BaseQuantization> quantization,
                          const infinicore::DataType &dtype = infinicore::DataType::F32, const infinicore::Device &device = infinicore::Device(),
                          engine::distributed::RankInfo rank_info = engine::distributed::RankInfo());
 

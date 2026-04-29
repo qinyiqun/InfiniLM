@@ -1,6 +1,6 @@
 #include "llama_for_causal_lm.hpp"
 #include "infinicore/context/context.hpp"
-#include "infinicore/nn/linear.hpp"
+#include "../../layers/linear/linear.hpp"
 #include "infinicore/ops.hpp"
 namespace infinilm::models::llama {
 /**

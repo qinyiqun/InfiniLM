@@ -1,5 +1,5 @@
 #include "llama_mlp.hpp"
-#include "infinicore/nn/linear.hpp"
+#include "../../layers/linear/linear.hpp"
 #include "infinicore/ops.hpp"
 
 namespace infinilm::models::llama {

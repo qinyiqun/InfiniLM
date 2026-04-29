@@ -2,7 +2,7 @@
 
 #include "../../layers/attention/attention.hpp"
 #include "../../utils.hpp"
-#include "infinicore/nn/linear.hpp"
+#include "../../layers/linear/linear.hpp"
 #include "infinicore/nn/rope.hpp"
 #include "infinicore/ops.hpp"
 #include "infinicore/ops/mha_kvcache.hpp"

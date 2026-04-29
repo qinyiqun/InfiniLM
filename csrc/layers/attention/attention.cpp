@@ -142,9 +142,9 @@ void init_kv_cache_quant_params(std::function<void(const std::string &, infinico
                               infinicore::nn::Parameter &kv_cache_v_scale) {
     auto kv_quant_scheme = infinilm::global_state::get_infinilm_config().model_config->get_kv_quant_scheme();
     switch (kv_quant_scheme) {
-    case infinicore::quantization::KVQuantAlgo::NONE:
+    case infinilm::quantization::KVQuantAlgo::NONE:
         break;
-    case infinicore::quantization::KVQuantAlgo::INT8:
+    case infinilm::quantization::KVQuantAlgo::INT8:
         kv_cache_k_scale = infinicore::nn::Parameter({1}, infinicore::DataType::F32, device, 0, 0, 1);
         register_fn("kv_cache_k_scale", kv_cache_k_scale);
         kv_cache_v_scale = infinicore::nn::Parameter({1}, infinicore::DataType::F32, device, 0, 0, 1);

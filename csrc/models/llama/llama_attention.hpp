@@ -8,7 +8,7 @@
 #include "../../layers/quantization/kv_quant.hpp"
 #include "llama_config.hpp"
 
-#include "infinicore/nn/linear.hpp"
+#include "../../layers/linear/linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/nn/rmsnorm.hpp"
 #include "infinicore/nn/rope.hpp"
@@ -116,7 +116,7 @@ private:
 protected:
     // Projection layers
     INFINICORE_NN_MODULE(infinilm::layers::linear::QKVParallelLinear, qkv_proj);
-    INFINICORE_NN_MODULE(infinicore::nn::RowParallelLinear, o_proj);
+    INFINICORE_NN_MODULE(infinilm::nn::RowParallelLinear, o_proj);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, q_norm);
     INFINICORE_NN_MODULE(infinicore::nn::RMSNorm, k_norm);
     engine::distributed::RankInfo rank_info_;

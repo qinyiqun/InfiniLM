@@ -36,7 +36,7 @@ AttentionBase::AttentionBase(std::shared_ptr<infinilm::config::ModelConfig> mode
     auto quant_scheme = model_config->get_quant_scheme();
     auto quantization_method = model_config->get_quantization_method();
     switch (quant_scheme) {
-    case infinicore::quantization::QuantScheme::NONE:
+    case infinilm::quantization::QuantScheme::NONE:
         INFINICORE_NN_MODULE_INIT(q_proj, hidden_size_, total_num_heads * head_dim_, quantization_method,
                                   use_bias_, dtype, device, tp_rank, tp_size);
         INFINICORE_NN_MODULE_INIT(k_proj, hidden_size_, total_num_kv_heads * head_dim_, quantization_method,

@@ -4,7 +4,7 @@
 #include "llama_model.hpp"
 
 #include "infinicore/device.hpp"
-#include "infinicore/nn/linear.hpp"
+#include "../../layers/linear/linear.hpp"
 #include "infinicore/nn/module.hpp"
 #include "infinicore/tensor.hpp"
 
@@ -71,7 +71,7 @@ protected:
     INFINICORE_NN_MODULE(LlamaModel, model);
 
     // Language modeling head
-    INFINICORE_NN_MODULE(infinicore::nn::Linear, lm_head);
+    INFINICORE_NN_MODULE(infinilm::nn::Linear, lm_head);
 
     std::unique_ptr<cache::CacheConfig> cache_config_;
 };

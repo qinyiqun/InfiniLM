@@ -99,7 +99,7 @@ void InfinilmModel::process_weights_recursive_(infinicore::nn::Module *module) {
     for (auto &[name, sub] : submodules) {
         process_weights_recursive_(sub);
     }
-    if (auto *linear = dynamic_cast<infinicore::nn::BaseLinear *>(module)) {
+    if (auto *linear = dynamic_cast<infinilm::nn::BaseLinear *>(module)) {
         linear->process_weights_after_loading();
     }
 }
