@@ -365,7 +365,7 @@ void RankWorker::thread_loop() {
                             auto n_req = local_args.input_offsets.value()->size(0) - 1;
                             int32_t *input_offsets = (int32_t *)local_args.input_offsets.value()->data();
 
-                            auto output_ids{infinicore::Tensor::empty({n_req}, infinicore::DataType::I64, rank_info_.device)};
+                            auto output_ids{infinicore::Tensor::zeros({n_req}, infinicore::DataType::I64, rank_info_.device)};
 
                             for (auto i{decltype(n_req)(0)}; i < n_req; ++i) {
                                 auto score{logits->view({batch_size * total_len, vocab_size})->narrow({{0, size_t(input_offsets[i + 1] - 1), 1}})->view({vocab_size})};

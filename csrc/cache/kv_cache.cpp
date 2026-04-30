@@ -59,7 +59,7 @@ StaticKVCache::StaticKVCache(
     num_rank_k_heads_ = is_kv_replica ? 1 : (num_k_heads / rank_info.tp_size);
     num_rank_v_heads_ = is_kv_replica ? 1 : (num_v_heads / rank_info.tp_size);
     // Allocate K cache
-    k_caches_ = infinicore::Tensor::empty(
+    k_caches_ = infinicore::Tensor::zeros(
         {rank_num_layers_,
          rank_batch_size_,
          num_rank_k_heads_,
@@ -69,7 +69,7 @@ StaticKVCache::StaticKVCache(
         rank_info.device);
 
     // Allocate V cache
-    v_caches_ = infinicore::Tensor::empty(
+    v_caches_ = infinicore::Tensor::zeros(
         {rank_num_layers_,
          rank_batch_size_,
          num_rank_v_heads_,
@@ -102,7 +102,7 @@ infinicore::Tensor StaticKVCache::create_layer_kv_cache(
     size_t cache_len = (config.max_cache_len() == std::numeric_limits<infinicore::Size>::max() || config.max_cache_len() == 0 ? max_positional_embedding : config.max_cache_len());
 
     // Allocate KV cache
-    infinicore::Tensor kv_cache = infinicore::Tensor::empty(
+    infinicore::Tensor kv_cache = infinicore::Tensor::zeros(
         {2,
          rank_batch_size,
          num_rank_k_heads,
@@ -203,7 +203,7 @@ PagedKVCache::PagedKVCache(
     num_rank_k_heads_ = is_kv_replica ? 1 : (num_k_heads / rank_info.tp_size);
     num_rank_v_heads_ = is_kv_replica ? 1 : (num_v_heads / rank_info.tp_size);
     // [num_layers, num_blocks, num_rank_k_heads, block_size, k_dim]
-    k_caches_ = infinicore::Tensor::empty(
+    k_caches_ = infinicore::Tensor::zeros(
         {rank_num_layers_,
          num_blocks_per_layer_,
          num_rank_k_heads_,
@@ -213,7 +213,7 @@ PagedKVCache::PagedKVCache(
         rank_info.device);
 
     // [num_layers, num_blocks, num_rank_v_heads, block_size, v_dim]
-    v_caches_ = infinicore::Tensor::empty(
+    v_caches_ = infinicore::Tensor::zeros(
         {rank_num_layers_,
          num_blocks_per_layer_,
          num_rank_v_heads_,
@@ -244,7 +244,7 @@ infinicore::Tensor PagedKVCache::create_layer_kv_cache(
     size_t block_size = config.block_size();
 
     // [1+1, num_blocks, num_rank_k_heads, block_size, k_dim]
-    infinicore::Tensor kv_cache = infinicore::Tensor::empty(
+    infinicore::Tensor kv_cache = infinicore::Tensor::zeros(
         {2,
          num_blocks_per_layer,
          num_rank_k_heads,
@@ -305,11 +305,11 @@ PagedKVCache::get_contiguous_kv(
     auto input_offsets_ptr = reinterpret_cast<const int32_t *>(input_offsets_cpu->data());
     int32_t total_len = cache_lens_ptr[req] + (input_offsets_ptr[req + 1] - input_offsets_ptr[req]);
 
-    auto full_k = infinicore::Tensor::empty(
+    auto full_k = infinicore::Tensor::zeros(
         {num_rank_k_heads_, (size_t)total_len, k_dim_},
         k_cache_layer->dtype(), k_cache_layer->device());
 
-    auto full_v = infinicore::Tensor::empty(
+    auto full_v = infinicore::Tensor::zeros(
         {num_rank_v_heads_, (size_t)total_len, v_dim_},
         v_cache_layer->dtype(), v_cache_layer->device());
 

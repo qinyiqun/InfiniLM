@@ -48,7 +48,7 @@ infinicore::Tensor FlashAttentionImpl::forward(const AttentionLayer &layer,
     bool is_prefill = (seq_len != total_sequence_lengths.value()->shape()[0]);
 
     // 2. Compute attention
-    infinicore::Tensor attn_output = infinicore::Tensor::empty({seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
+    infinicore::Tensor attn_output = infinicore::Tensor::zeros({seq_len, num_heads_, head_dim_}, query->dtype(), query->device());
     if (is_prefill) {
         infinicore::op::mha_varlen_(
             attn_output,
