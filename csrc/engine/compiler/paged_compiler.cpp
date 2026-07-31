@@ -191,6 +191,12 @@ PagedCompiler::Compiled PagedCompiler::get_compiled(const InfinilmModel::Input &
                 }
             }
             auto &graph_input = result->second.input;
+            if (graph_input.input_ids.value()->dtype() != input.input_ids.value()->dtype()) {
+                // Cross-device `Tensor::copy_from` does not convert dtypes.
+                // Falling back avoids interpreting CPU `I64` token IDs as
+                // packed GPU `I32` values.
+                return {nullptr, nullptr};
+            }
 
             const size_t compiled_block_per_req = graph_input.block_tables.value()->size(1);
             if (block_per_req > compiled_block_per_req) {

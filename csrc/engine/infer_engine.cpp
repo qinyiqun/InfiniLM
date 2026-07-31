@@ -273,8 +273,7 @@ InferEngine::Output InferEngine::forward(const InferEngine::Input &input) {
     input.validate();
 
     Input local_input = input;
-    if (last_output_ready_event_ && local_input.input_ids.has_value() &&
-        local_input.input_ids.value()->device().getType() != infinicore::Device::Type::CPU) {
+    if (last_output_ready_event_ && local_input.input_ids.has_value() && local_input.input_ids.value()->device().getType() != infinicore::Device::Type::CPU) {
         // Decode feeds the previous sampled GPU tensor back as input. Keep the
         // worker stream ordered without forcing a host synchronization.
         local_input.wait_event = last_output_ready_event_;
@@ -390,6 +389,9 @@ void InferEngine::sync_last_output() {
     if (last_saved_output_event_) {
         last_saved_output_event_->synchronize();
     }
+    for (auto &worker : workers_) {
+        worker->retire_completed_inputs();
+    }
     request_output_refs_.clear();
 }
 
@@ -402,13 +404,11 @@ void InferEngine::copy_last_output_to(infinicore::Tensor dst) {
     }
     if (dst->shape() != last_output_ids_->shape()) {
         throw std::runtime_error(
-            "Cannot copy output with different shape. Src: " + last_output_ids_->info() +
-            " Dst: " + dst->info());
+            "Cannot copy output with different shape. Src: " + last_output_ids_->info() + " Dst: " + dst->info());
     }
     if (!(dst->device() == last_output_ids_->device())) {
         throw std::runtime_error(
-            "Destination output tensor must be on the same device as the sampled token. Src: " +
-            last_output_ids_->info() + " Dst: " + dst->info());
+            "Destination output tensor must be on the same device as the sampled token. Src: " + last_output_ids_->info() + " Dst: " + dst->info());
     }
 
     infinicore::context::setDevice(dst->device());
