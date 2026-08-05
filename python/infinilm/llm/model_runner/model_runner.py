@@ -185,16 +185,27 @@ class ModelRunner:
 
         self._configure_async_token_handoff()
 
+    def _runtime_device_type_name(self) -> str:
+        runtime_type = self.device._underlying.type
+        return getattr(runtime_type, "name", str(runtime_type).rsplit(".", 1)[-1])
+
     def _async_token_handoff_unsupported_reasons(self) -> list[str]:
         reasons = []
         if self.config.pipeline_parallel_size != 1:
             reasons.append("pipeline parallelism is not supported")
         if self.config.cache_type != "paged":
             reasons.append("paged KV cache is required")
-        if self.config.device != "cuda":
-            reasons.append("only the CUDA backend is currently validated")
+        runtime_device_type = self._runtime_device_type_name()
+        if self.config.device != "cuda" or runtime_device_type not in {
+            "NVIDIA",
+            "HYGON",
+        }:
+            reasons.append(
+                "only NVIDIA and HYGON CUDA-compatible runtimes are validated "
+                f"(got {runtime_device_type})"
+            )
         if not self.config.enable_graph:
-            reasons.append("CUDA graph compilation is required")
+            reasons.append("device graph compilation is required")
         if not getattr(self.processor, "supports_async_token_handoff", False):
             reasons.append(
                 f"processor {type(self.processor).__name__} does not support GPU decode inputs"
@@ -233,7 +244,10 @@ class ModelRunner:
         )
         self._forward_thread.start()
         self._async_token_handoff_enabled = True
-        logger.info("Async GPU token handoff enabled")
+        logger.info(
+            "Async GPU token handoff enabled on %s",
+            self._runtime_device_type_name(),
+        )
 
     @property
     def model_type(self):

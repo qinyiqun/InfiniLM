@@ -291,7 +291,7 @@ class BaseConfig:
             default="auto",
             help=(
                 "Select the GPU token relay mode. `auto` enables it only for "
-                "compatible paged NVIDIA decode paths, `on` requests it "
+                "compatible paged NVIDIA/HYGON decode paths, `on` requests it "
                 "explicitly, and `off` disables it (default: `auto`)."
             ),
         )

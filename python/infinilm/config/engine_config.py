@@ -34,7 +34,7 @@ class EngineConfig:
         top_k: Default top-k sampling parameter.
         enable_graph: Whether to enable graph compiling.
         enable_async_token_handoff: Async token handoff preference. `None`
-            selects compatible paged NVIDIA decode paths automatically,
+            selects compatible paged NVIDIA/HYGON decode paths automatically,
             `True` enables the feature, and `False` disables it.
         attn_backend: Attention backend to use ('default', 'flash-attn').
         use_mla: Whether to use DeepSeek V2 MLA attention when supported.
